@@ -15,7 +15,7 @@ enum RenderHarness {
         if CommandLine.arguments.contains("--demo") {
             // Documentation screenshots ship with stand-in numbers so nobody has to
             // publish their own spend.
-            store.loadDemoData()
+            store.loadDemoData(idle: CommandLine.arguments.contains("--idle"))
         } else {
             // No NSApplication run loop here, so fetch inline rather than waiting on
             // a main-queue hop that would never be delivered.
@@ -36,7 +36,10 @@ enum RenderHarness {
                                 sessions: store.sessions.count,
                                 leadProject: store.sessions.first?.project ?? "",
                                 leadDetail: store.sessions.first?.detail ?? "",
-                                measuredBody: state.panelBodyHeight)
+                                measuredBody: state.panelBodyHeight,
+                                trailLabels: store.snapshot.visible.map { provider in
+                                    provider.headlineFraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "–"
+                                })
             let size = layout.size(for: mode)
             snapshot(root, size: size, to: outputDirectory + "/\(name).png")
             print("rendered \(name).png  \(Int(size.width))x\(Int(size.height))")

@@ -20,7 +20,15 @@ struct NotchRootView: View {
                sessions: sessions.count,
                leadProject: sessions.first?.project ?? "",
                leadDetail: sessions.first?.detail ?? "",
-               measuredBody: state.panelBodyHeight)
+               measuredBody: state.panelBodyHeight,
+               trailLabels: trailLabels)
+    }
+
+    /// What the trailing side will actually render, so the layout can measure it.
+    private var trailLabels: [String] {
+        store.snapshot.visible.map { provider in
+            provider.headlineFraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "–"
+        }
     }
 
     private var currentSize: CGSize { layout.size(for: state.mode) }
@@ -178,6 +186,7 @@ private struct PillContent: View {
             }
             UsageStrip(snapshot: snapshot, tone: tone)
         }
+        .fixedSize()
         .padding(.horizontal, Style.pillInset)
         .frame(width: size.width, height: size.height)
     }

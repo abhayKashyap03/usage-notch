@@ -27,6 +27,9 @@ struct Layout: Equatable {
     /// ever an estimate — it drifts the moment a row wraps or a section appears — so
     /// the real measurement wins once SwiftUI reports it.
     var measuredBody: CGFloat?
+    /// The percentage strings the trailing side will draw. Assuming a fixed width per
+    /// chip was wrong often enough to squash the text.
+    var trailLabels: [String] = []
 
     /// Width of a string in the rounded system font, matching what SwiftUI renders.
     private static func width(_ text: String, _ size: CGFloat, _ weight: NSFont.Weight) -> CGFloat {
@@ -46,10 +49,13 @@ struct Layout: Equatable {
         return 10 + 6 + max(text, 34) + badge + 12
     }
 
-    /// A dot plus a percentage per provider, then the tone bar.
+    /// A dot plus a percentage per provider, then the tone bar. Measured, because a
+    /// "100%" is meaningfully wider than a "3%" and the pill has no slack to give.
     private var trailContent: CGFloat {
-        let chips = CGFloat(max(providers, 1)) * 38 + CGFloat(max(providers - 1, 0)) * 9
-        return chips + 8
+        let labels = trailLabels.isEmpty ? Array(repeating: "00%", count: max(providers, 1)) : trailLabels
+        let chips = labels.reduce(0) { $0 + 9 + max(Self.width($1, 11, .semibold), 20) }
+        let gaps = CGFloat(max(labels.count - 1, 0)) * 9
+        return chips + gaps + 14 + 9 + 6   // tone bar, its gap, and a little slack
     }
 
     /// Wings are kept equal so the gap stays centred on the hardware notch.

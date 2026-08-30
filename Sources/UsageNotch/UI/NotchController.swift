@@ -224,7 +224,10 @@ final class NotchController: NSObject, NSMenuDelegate {
                sessions: store.sessions.count,
                leadProject: store.sessions.first?.project ?? "",
                leadDetail: store.sessions.first?.detail ?? "",
-               measuredBody: state.panelBodyHeight)
+               measuredBody: state.panelBodyHeight,
+               trailLabels: store.snapshot.visible.map { provider in
+                   provider.headlineFraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "–"
+               })
     }
 
     private func currentPlacement() -> Placement {

@@ -95,7 +95,7 @@ final class UsageStore: ObservableObject {
     }
 
     /// Plausible stand-in readings for the README screenshots.
-    func loadDemoData() {
+    func loadDemoData(idle: Bool = false) {
         let now = Date()
         var claude = ProviderUsage(
             id: "claude-code", name: "Claude Code", glyph: "CC",
@@ -116,7 +116,7 @@ final class UsageStore: ObservableObject {
         )
         codex.footnote = nil
         snapshot = UsageSnapshot(providers: [claude, codex], updatedAt: now)
-        sessions = [
+        sessions = idle ? [] : [
             AgentSession(id: "demo-1", kind: .claude, project: "usage-notch", branch: "main",
                          detail: "Edit", startedAt: now.addingTimeInterval(-14 * 60),
                          lastActivity: now, isWorking: true),
