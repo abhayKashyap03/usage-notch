@@ -132,10 +132,10 @@ final class NotchController: NSObject, NSMenuDelegate {
             .store(in: &bag)
 
         store.$sessions
-            .map(\.count)
+            .map { "\($0.count):\($0.first?.project ?? ""):\($0.first?.detail ?? "")" }
             .removeDuplicates()
-            .sink { [weak self] count in
-                self?.debugLog("live sessions=\(count)")
+            .sink { [weak self] summary in
+                self?.debugLog("live sessions=\(summary)")
                 self?.positionPanel()
             }
             .store(in: &bag)
@@ -200,7 +200,9 @@ final class NotchController: NSObject, NSMenuDelegate {
     private func layout(providersFloor: Int = 1) -> Layout {
         Layout(placement: currentPlacement(),
                providers: max(store.snapshot.visible.count, providersFloor),
-               sessions: store.sessions.count)
+               sessions: store.sessions.count,
+               leadProject: store.sessions.first?.project ?? "",
+               leadDetail: store.sessions.first?.detail ?? "")
     }
 
     private func currentPlacement() -> Placement {

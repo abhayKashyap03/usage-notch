@@ -27,14 +27,21 @@ running a tool (the tool's name), responding, or waiting on you — plus how lon
 session has been open.
 
 - Claude Code: the newest `assistant` record's `tool_use` block names the running
-  tool; a trailing `tool_result` means it is thinking again.
-- Codex: `agent_reasoning`, `exec_command_begin`, `patch_apply_begin` and friends map
-  the same way.
+  tool; a trailing `tool_result` means it is thinking again. `stop_reason` is what
+  actually decides whether the turn is over — `end_turn` means done, not "still
+  responding".
+- Codex: `agent_reasoning`, `exec_command_begin` and `patch_apply_begin` map the same
+  way, and `task_complete` marks the end of a turn.
 
-After 75 seconds of silence a session flips to "waiting for you", and the polling
-backs off. Sessions untouched for 20 minutes drop off the list, which is capped at
-four so the panel stays glanceable. Turn the whole thing off in *Sources ▸ Live agent
-sessions*.
+Those end-of-turn markers matter more than they sound. Without them a finished
+session keeps reading as busy off its last message, and every session you ran today
+piles up in the panel claiming to be alive.
+
+A finished session shows as "done" for five minutes and then drops off; one that goes
+quiet mid-turn is marked "stalled" and retired just as quickly. Resumed sessions write
+a fresh transcript under the same project, so rows are de-duplicated per agent and
+project, keeping the busy one. The list is capped at four. Turn the whole thing off in
+*Sources ▸ Live agent sessions*.
 
 ## Where it sits
 

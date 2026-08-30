@@ -23,11 +23,11 @@ struct AgentSession: Identifiable, Equatable {
     var kind: AgentKind
     var project: String
     var branch: String?
-    /// What it is doing: a tool name, "thinking", "responding", or "waiting for you".
+    /// What it is doing: a tool name, "thinking", "responding", or "done".
     var detail: String
     var startedAt: Date
     var lastActivity: Date
-    /// False once the agent has handed control back and is idling on your reply.
+    /// False once the agent has finished its turn and handed control back.
     var isWorking: Bool
 
     var elapsed: TimeInterval { Date().timeIntervalSince(startedAt) }

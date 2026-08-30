@@ -16,7 +16,9 @@ struct NotchRootView: View {
     private var layout: Layout {
         Layout(placement: placement,
                providers: max(store.snapshot.visible.count, 1),
-               sessions: sessions.count)
+               sessions: sessions.count,
+               leadProject: sessions.first?.project ?? "",
+               leadDetail: sessions.first?.detail ?? "")
     }
 
     private var currentSize: CGSize { layout.size(for: state.mode) }
@@ -117,10 +119,14 @@ private struct PillContent: View {
     }
 
     private func island(_ size: CGSize) -> some View {
-        HStack(spacing: 0) {
+        // Each wing centres its own content rather than pinning it outward, so nothing
+        // ends up pressed against the rounded corner.
+        let wing = (size.width - layout.notchGap) / 2
+        return HStack(spacing: 0) {
             HStack(spacing: 6) {
                 if let lead {
                     SessionChip(session: lead)
+                        .fixedSize()
                     if sessions.count > 1 {
                         Text("+\(sessions.count - 1)")
                             .font(.system(size: 8.5, weight: .bold, design: .rounded))
@@ -132,20 +138,18 @@ private struct PillContent: View {
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.35))
                 }
-                Spacer(minLength: 0)
             }
-            .frame(width: (size.width - layout.notchGap) / 2)
-            .padding(.leading, 12)
+            .fixedSize()
+            .padding(.horizontal, Style.wingInset)
+            .frame(width: wing)
 
             // The hardware cutout lives in this gap.
             Color.clear.frame(width: layout.notchGap)
 
-            HStack(spacing: 6) {
-                Spacer(minLength: 0)
-                UsageStrip(snapshot: snapshot, tone: tone)
-            }
-            .frame(width: (size.width - layout.notchGap) / 2)
-            .padding(.trailing, 12)
+            UsageStrip(snapshot: snapshot, tone: tone, showToneBar: false)
+                .fixedSize()
+                .padding(.horizontal, Style.wingInset)
+                .frame(width: wing)
         }
         .frame(width: size.width, height: size.height)
     }
@@ -163,7 +167,7 @@ private struct PillContent: View {
             }
             UsageStrip(snapshot: snapshot, tone: tone)
         }
-        .padding(.horizontal, 11)
+        .padding(.horizontal, Style.pillInset)
         .frame(width: size.width, height: size.height)
     }
 
@@ -211,21 +215,27 @@ private struct ExpandedContent: View {
     }
 
     private var islandBand: some View {
-        HStack(spacing: 0) {
-            HStack {
-                Text("LLM USAGE")
-                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                    .tracking(1.1)
-                    .foregroundStyle(.white.opacity(0.5))
-                Spacer(minLength: 0)
+        let wing = (layout.size(for: .expanded).width - layout.notchGap) / 2
+        return HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text(store.snapshot.updatedAt == .distantPast ? "—" : Fmt.clock(store.snapshot.updatedAt))
+                    .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.4))
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white.opacity(store.isRefreshing ? 0.9 : 0.45))
+                    .rotationEffect(.degrees(state.spin))
             }
-            .padding(.leading, 14)
+            .fixedSize()
+            .lineLimit(1)
+            .frame(width: wing)
+
             Color.clear.frame(width: layout.notchGap)
-            HStack {
-                Spacer(minLength: 0)
-                UsageStrip(snapshot: store.snapshot, tone: tone, showToneBar: false)
-            }
-            .padding(.trailing, 14)
+
+            UsageStrip(snapshot: store.snapshot, tone: tone, showToneBar: false)
+                .fixedSize()
+                .lineLimit(1)
+                .frame(width: wing)
         }
     }
 
@@ -263,9 +273,9 @@ private struct ExpandedContent: View {
             Spacer(minLength: 0)
             footer
         }
-        .padding(.horizontal, 14)
-        .padding(.top, layout.placement.edge.isIsland ? 4 : 10)
-        .padding(.bottom, 10)
+        .padding(.horizontal, Style.panelInset)
+        .padding(.top, layout.placement.edge.isIsland ? 6 : 12)
+        .padding(.bottom, 12)
         .frame(width: width, alignment: .leading)
     }
 

@@ -1,4 +1,17 @@
 import SwiftUI
+import AppKit
+
+/// Spacing constants, in one place. The pill is small enough that a couple of points
+/// either way is the difference between "designed" and "crammed".
+enum Style {
+    /// Breathing room between an island wing's content and the outer corner. The
+    /// corner radius eats into this visually, so it is larger than it looks.
+    static let wingInset: CGFloat = 20
+    /// Inset for the single-run pill layouts.
+    static let pillInset: CGFloat = 16
+    /// Inset for the opened panel.
+    static let panelInset: CGFloat = 16
+}
 
 /// Every size decision in one place, so the AppKit hit region and the SwiftUI frame
 /// can never disagree about how big the pill currently is.
@@ -6,6 +19,45 @@ struct Layout: Equatable {
     var placement: Placement
     var providers: Int
     var sessions: Int
+    /// The strings the pill will actually draw, so it can size itself to them instead
+    /// of guessing a fixed width and leaving the content jammed against the corners.
+    var leadProject: String = ""
+    var leadDetail: String = ""
+
+    /// Width of a string in the rounded system font, matching what SwiftUI renders.
+    private static func width(_ text: String, _ size: CGFloat, _ weight: NSFont.Weight) -> CGFloat {
+        guard !text.isEmpty else { return 0 }
+        var font = NSFont.systemFont(ofSize: size, weight: weight)
+        if let rounded = font.fontDescriptor.withDesign(.rounded) {
+            font = NSFont(descriptor: rounded, size: size) ?? font
+        }
+        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
+
+    /// Bars + project/detail stack + the "+N" badge. The slack covers SwiftUI's own
+    /// spacing, which measurement of the strings alone does not account for.
+    private var leadContent: CGFloat {
+        let text = max(Self.width(leadProject, 9.5, .semibold), Self.width(leadDetail, 8.5, .medium))
+        let badge: CGFloat = sessions > 1 ? 26 : 0
+        return 10 + 6 + max(text, 34) + badge + 12
+    }
+
+    /// A dot plus a percentage per provider, then the tone bar.
+    private var trailContent: CGFloat {
+        let chips = CGFloat(max(providers, 1)) * 38 + CGFloat(max(providers - 1, 0)) * 9
+        return chips + 8
+    }
+
+    /// Wings are kept equal so the gap stays centred on the hardware notch.
+    var islandWing: CGFloat {
+        max(leadContent, trailContent) + Style.wingInset * 2
+    }
+
+    /// The opened panel keeps a band either side of the notch too: clock and refresh
+    /// on one side, usage on the other. Sized so neither can wrap.
+    var islandBandWing: CGFloat {
+        max(62, trailContent) + Style.wingInset * 2
+    }
 
     private var providerRows: CGFloat { CGFloat(max(providers, 1)) * 66 }
     private var sessionRows: CGFloat { sessions == 0 ? 0 : CGFloat(sessions) * 26 + 8 }
@@ -24,7 +76,9 @@ struct Layout: Equatable {
     private func topSize(_ mode: NotchMode) -> CGSize {
         switch mode {
         case .mini: return CGSize(width: 52, height: 9)
-        case .pill: return CGSize(width: sessions > 0 ? 214 : 158, height: 30)
+        case .pill:
+            let lead = sessions > 0 ? leadContent + 12 : 0   // chip plus its divider
+            return CGSize(width: lead + trailContent + Style.pillInset * 2, height: 30)
         case .expanded: return CGSize(width: 326, height: panelBody)
         }
     }
@@ -48,10 +102,10 @@ struct Layout: Equatable {
         case .mini:
             return CGSize(width: notch.width + 28, height: notch.height)
         case .pill:
-            let wing: CGFloat = sessions > 0 ? 116 : 78
-            return CGSize(width: notch.width + wing * 2, height: notch.height)
+            return CGSize(width: notch.width + islandWing * 2, height: notch.height)
         case .expanded:
-            return CGSize(width: max(notch.width + 90, 360), height: notch.height + panelBody)
+            return CGSize(width: max(notch.width + islandBandWing * 2, 372),
+                          height: notch.height + panelBody)
         }
     }
 

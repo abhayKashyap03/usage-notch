@@ -11,7 +11,10 @@ final class AgentActivityProvider: @unchecked Sendable {
 
     /// Transcripts untouched for longer than this are not live sessions any more.
     private static let liveWindow: TimeInterval = 20 * 60
-    /// After this much silence the agent is waiting on you rather than working.
+    /// A turn that ended is only worth showing for a short while afterwards — long
+    /// enough to notice "it finished", not long enough to accumulate ghosts.
+    private static let finishedGrace: TimeInterval = 5 * 60
+    /// Silence this long without an end-of-turn marker still counts as stalled.
     private static let idleAfter: TimeInterval = 75
     private static let tailBytes = 96 * 1024
     private static let maxSessions = 4
@@ -33,8 +36,17 @@ final class AgentActivityProvider: @unchecked Sendable {
                 out.append(session)
             }
         }
+        // Resumed sessions write a fresh rollout under the same conversation, so keep
+        // one row per project+agent: the newest, and prefer one that is actually busy.
+        var byKey: [String: AgentSession] = [:]
+        for session in out.ranked {
+            let key = "\(session.kind.rawValue):\(session.project)"
+            if let existing = byKey[key],
+               existing.isWorking || existing.lastActivity >= session.lastActivity { continue }
+            byKey[key] = session
+        }
         // More than a handful of rows stops being glanceable, which is the point.
-        return Array(out.ranked.prefix(Self.maxSessions))
+        return Array(Array(byKey.values).ranked.prefix(Self.maxSessions))
     }
 
     // MARK: - Claude Code
@@ -46,6 +58,7 @@ final class AgentActivityProvider: @unchecked Sendable {
         var stamp: Date?
         var branch: String?
         var cwd: String?
+        var finished = false
 
         // Walk backwards to the newest record that says something about state.
         for line in lines.reversed() {
@@ -60,9 +73,15 @@ final class AgentActivityProvider: @unchecked Sendable {
 
             switch type {
             case "assistant":
-                // A tool_use block is the most informative thing in the file.
-                if let tool = content.compactMap({ $0["name"] as? String }).last {
+                // `stop_reason` says whether the model is mid-turn or has handed back:
+                // "tool_use" means it is about to run something, "end_turn" means it is
+                // done and waiting on you. Guessing from timing alone was wrong.
+                let stop = message?["stop_reason"] as? String
+                if let tool = content.compactMap({ $0["name"] as? String }).last, stop != "end_turn" {
                     detail = tool
+                } else if stop == "end_turn" || stop == "stop_sequence" {
+                    finished = true
+                    detail = "done"
                 } else if content.contains(where: { ($0["type"] as? String) == "thinking" }) {
                     detail = "thinking"
                 } else {
@@ -79,15 +98,16 @@ final class AgentActivityProvider: @unchecked Sendable {
         }
 
         guard let detail, let stamp else { return nil }
+        let age = now.timeIntervalSince(stamp)
+        guard let state = Self.resolve(detail: detail, finished: finished, age: age) else { return nil }
         let head = claudeHead(path: path, fallbackProject: cwd, fallbackDate: stamp)
-        let working = now.timeIntervalSince(stamp) < Self.idleAfter
 
         return AgentSession(
             id: path, kind: .claude,
             project: head.project,
             branch: branch == "HEAD" ? nil : branch,
-            detail: working ? detail : "waiting for you",
-            startedAt: head.started, lastActivity: stamp, isWorking: working
+            detail: state.detail,
+            startedAt: head.started, lastActivity: stamp, isWorking: state.working
         )
     }
 
@@ -132,6 +152,7 @@ final class AgentActivityProvider: @unchecked Sendable {
 
         var detail: String?
         var stamp: Date?
+        var finished = false
         for line in lines.reversed() {
             guard let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
                   let payload = obj["payload"] as? [String: Any],
@@ -151,6 +172,11 @@ final class AgentActivityProvider: @unchecked Sendable {
                 detail = "editing"
             case "agent_message", "output_text":
                 detail = "responding"
+            case "task_complete", "turn_complete", "shutdown_complete":
+                // Codex writes this the moment a turn ends. Without it, the older
+                // agent_message below reads as "still responding" forever.
+                finished = true
+                detail = "done"
             default:
                 continue    // token_count, world_state, session_meta and friends
             }
@@ -159,14 +185,15 @@ final class AgentActivityProvider: @unchecked Sendable {
         }
 
         guard let detail, let stamp else { return nil }
+        let age = now.timeIntervalSince(stamp)
+        guard let state = Self.resolve(detail: detail, finished: finished, age: age) else { return nil }
         let head = codexHead(path: path, fallbackDate: stamp)
-        let working = now.timeIntervalSince(stamp) < Self.idleAfter
 
         return AgentSession(
             id: path, kind: .codex,
             project: head.project, branch: nil,
-            detail: working ? detail : "waiting for you",
-            startedAt: head.started, lastActivity: stamp, isWorking: working
+            detail: state.detail,
+            startedAt: head.started, lastActivity: stamp, isWorking: state.working
         )
     }
 
@@ -203,6 +230,19 @@ final class AgentActivityProvider: @unchecked Sendable {
     }
 
     // MARK: - Shared
+
+    /// Turns "what the last record said" into what the pill should show, or nil when
+    /// the session no longer deserves a row.
+    private static func resolve(detail: String, finished: Bool, age: TimeInterval) -> (detail: String, working: Bool)? {
+        if finished {
+            guard age < finishedGrace else { return nil }
+            return (age < 60 ? "done" : "done \(Fmt.elapsed(age)) ago", false)
+        }
+        if age < idleAfter { return (detail, true) }
+        // Mid-turn but silent: the CLI was probably quit, so retire it quickly.
+        guard age < finishedGrace else { return nil }
+        return ("stalled", false)
+    }
 
     private static func tailLines(of path: String) -> [Data]? {
         guard let handle = FileHandle(forReadingAtPath: path) else { return nil }

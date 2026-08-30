@@ -33,7 +33,9 @@ enum RenderHarness {
                                      onHitTargets: { _ in })
             let layout = Layout(placement: state.placement,
                                 providers: max(store.snapshot.visible.count, 1),
-                                sessions: store.sessions.count)
+                                sessions: store.sessions.count,
+                                leadProject: store.sessions.first?.project ?? "",
+                                leadDetail: store.sessions.first?.detail ?? "")
             let size = layout.size(for: mode)
             snapshot(root, size: size, to: outputDirectory + "/\(name).png")
             print("rendered \(name).png  \(Int(size.width))x\(Int(size.height))")
