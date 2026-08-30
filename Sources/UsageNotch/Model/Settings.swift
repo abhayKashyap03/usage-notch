@@ -59,6 +59,7 @@ final class Settings {
         static let sideOffset = "sideOffset"
         static let topOffset = "topOffset"
         static let showAgents = "showAgents"
+        static let lastBlockValue = "lastBlockValue"
         static let showWorkspaceState = "showWorkspaceState"
     }
 
@@ -168,6 +169,13 @@ final class Settings {
             return name.isEmpty ? nil : name
         }
         set { d.set(newValue ?? "", forKey: K.preferredScreen) }
+    }
+
+    /// Value of the current 5-hour block, kept so calibration can convert a
+    /// percentage into a ceiling.
+    var lastBlockValue: Double {
+        get { d.double(forKey: K.lastBlockValue) }
+        set { d.set(newValue, forKey: K.lastBlockValue) }
     }
 
     var refreshSeconds: Double {

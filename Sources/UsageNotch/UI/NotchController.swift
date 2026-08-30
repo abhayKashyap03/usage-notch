@@ -516,6 +516,42 @@ final class NotchController: NSObject, NSMenuDelegate {
         refresh(spin: false)
     }
 
+    /// Claude does not publish a usable limit locally, but the user can read their
+    /// real percentage off Claude and hand it to us once: the ceiling follows from
+    /// that and the value of the block we are currently measuring.
+    @objc private func menuCalibrate() {
+        let blockValue = Settings.shared.lastBlockValue
+        guard blockValue > 0 else {
+            NSSound.beep()
+            return
+        }
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.messageText = "Calibrate the 5-hour ring"
+        alert.informativeText =
+            "Open Claude and read the percentage it shows for the current 5-hour window, "
+            + "then type it here. Usage Notch will work out your limit from it and the "
+            + "block it is measuring right now."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
+        field.placeholderString = "78"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Set")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let entered = Double(field.stringValue.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "%", with: ""))
+        guard let entered, entered > 1, entered <= 100 else { NSSound.beep(); return }
+        Settings.shared.claudeSessionLimit = blockValue / (entered / 100)
+        debugLog("calibrated: block \(blockValue) is \(entered)% -> limit \(Settings.shared.claudeSessionLimit)")
+        refresh(spin: true)
+    }
+
+    @objc private func menuClearCalibration() {
+        Settings.shared.claudeSessionLimit = 0
+        refresh(spin: false)
+    }
+
     @objc private func menuToggleAccount() {
         let enabling = !Settings.shared.useAnthropicAccount
         Settings.shared.useAnthropicAccount = enabling
@@ -672,6 +708,11 @@ final class NotchController: NSObject, NSMenuDelegate {
             mi.representedObject = metric.rawValue
             mi.state = s.claudeMetric == metric ? .on : .off
             sources.addItem(mi)
+        }
+        sources.addItem(.separator())
+        sources.addItem(item("Calibrate 5-hour limit…", #selector(menuCalibrate)))
+        if s.claudeSessionLimit > 0 {
+            sources.addItem(item("Clear calibration", #selector(menuClearCalibration)))
         }
         sources.addItem(.separator())
         let account = item("Use Claude account limits (keychain)", #selector(menuToggleAccount))

@@ -211,6 +211,9 @@ final class AnthropicAccountProvider: @unchecked Sendable {
         let services = Set(entries.compactMap { $0[kSecAttrService as String] as? String })
             .filter { $0.hasPrefix(Self.service) }
             .sorted { lhs, _ in lhs == Self.service }
+            // Suffixed items are per-plugin MCP tokens, not Claude credentials, and
+            // reading each one raises its own keychain prompt. Try a couple, no more.
+            .prefix(3)
         guard !services.isEmpty else {
             usageDebug("account: no Claude Code credentials found")
             return nil
@@ -218,7 +221,7 @@ final class AnthropicAccountProvider: @unchecked Sendable {
 
         var best: (token: String, expiry: Date)?
         var sawExpired = false
-        for service in services {
+        for service in Array(services) {
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: service,

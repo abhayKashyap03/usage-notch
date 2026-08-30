@@ -88,6 +88,10 @@ final class ClaudeCodeProvider: UsageProvider, @unchecked Sendable {
         var weeklyLimit = Settings.shared.claudeWeeklyLimit
         if weeklyLimit <= 0 { weeklyLimit = max(peakRollingWeek(metric: metric), weekValue) }
 
+        // Remember what the live block is worth, so the user can calibrate the
+        // ceiling from a percentage Claude itself showed them.
+        if let active { Settings.shared.lastBlockValue = value(active) }
+
         if let active {
             usage.tokens = active.tokens
             usage.costUSD = active.cost
