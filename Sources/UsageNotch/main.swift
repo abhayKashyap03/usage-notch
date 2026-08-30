@@ -39,6 +39,10 @@ if CommandLine.arguments.contains("--dump") {
         print("\(usage.name): \(five) of \(usage.session.label) (resets in \(reset)), \(week) of \(usage.week.label)")
         print("  tokens=\(Fmt.tokens(usage.tokens)) cost=\(usage.costUSD.map(Fmt.money) ?? "n/a") plan=\(usage.plan ?? "n/a") estimated=\(usage.session.estimated)")
         print("  note=\(usage.footnote ?? "-")")
+        let arc = usage.session.remainingFraction().map { String(format: "%.0f%%", $0 * 100) } ?? "n/a"
+        let left = usage.session.resetsAt.map { String(format: "%.2fh", $0.timeIntervalSinceNow / 3600) } ?? "n/a"
+        let len = usage.session.length.map { String(format: "%.1fh", $0 / 3600) } ?? "nil"
+        print("  ring: window=\(len) left=\(left) arc=\(arc) (time remaining)")
     }
     let liveSessions = AgentActivityProvider().sessions()
     for session in liveSessions {

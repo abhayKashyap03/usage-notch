@@ -117,12 +117,13 @@ struct ProviderBadge: View {
     }
 }
 
-/// Compact readout for the collapsed pill: a ring that fills as the window runs
+/// Compact readout for the collapsed pill: a ring that empties as the window runs
 /// down, with the usage percentage inside it.
 ///
 /// Two different quantities share one glyph on purpose — the number answers "how
-/// much have I used", the arc answers "how long until it resets", and those are the
-/// only two things worth knowing at a glance.
+/// much have I used", the arc answers "how much time is left", and those are the
+/// only two things worth knowing at a glance. The arc drains rather than fills so a
+/// nearly-full ring means plenty of runway, not the opposite.
 struct UsageRing: View {
     var percent: Int?
     var tint: Color
@@ -137,7 +138,7 @@ struct UsageRing: View {
                 Circle()
                     .stroke(Color.white.opacity(0.13), lineWidth: 2)
                 Circle()
-                    .trim(from: 0, to: elapsed(now: context.date))
+                    .trim(from: 0, to: remaining(now: context.date))
                     .stroke(tint.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                 Text(percent.map(String.init) ?? "–")
@@ -149,9 +150,10 @@ struct UsageRing: View {
         }
     }
 
-    private func elapsed(now: Date) -> CGFloat {
+    /// Fraction of the window still to go: full at the start, empty at the reset.
+    private func remaining(now: Date) -> CGFloat {
         guard let resetsAt, let windowLength, windowLength > 0 else { return 0 }
-        let remaining = resetsAt.timeIntervalSince(now)
-        return CGFloat(min(max(1 - remaining / windowLength, 0), 1))
+        let left = resetsAt.timeIntervalSince(now)
+        return CGFloat(min(max(left / windowLength, 0), 1))
     }
 }

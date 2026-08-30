@@ -16,11 +16,10 @@ struct UsageWindow {
 
     var percent: Int? { fraction.map { Int(($0 * 100).rounded()) } }
 
-    /// How far through the window we are, 0 at the start and 1 at the reset.
-    func elapsedFraction(now: Date = Date()) -> Double? {
+    /// How much of the window is left, 1 at the start and 0 at the reset.
+    func remainingFraction(now: Date = Date()) -> Double? {
         guard let resetsAt, let length, length > 0 else { return nil }
-        let remaining = resetsAt.timeIntervalSince(now)
-        return min(max(1 - remaining / length, 0), 1)
+        return min(max(resetsAt.timeIntervalSince(now) / length, 0), 1)
     }
 }
 
