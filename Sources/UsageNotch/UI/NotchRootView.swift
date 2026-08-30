@@ -8,15 +8,19 @@ struct NotchRootView: View {
     var onToggleMini: () -> Void
     var onHitTargets: ([HitTarget]) -> Void
 
-    static let space = "usage-notch"
-
-    private var tone: UsageTone { UsageTone.forFraction(store.snapshot.peakFraction) }
-    private var providers: Int { max(store.snapshot.visible.count, 1) }
-    private var expandedSize: CGSize { NotchMode.expandedSize(providers: providers) }
-    private var currentSize: CGSize { state.mode.size(edge: placement.edge, providers: providers) }
-    private var radius: CGFloat { state.mode == .mini ? 4 : 12 }
     private var placement: Placement { state.placement }
     private var alignment: Alignment { placement.alignment }
+    private var tone: UsageTone { UsageTone.forFraction(store.snapshot.peakFraction) }
+    private var sessions: [AgentSession] { store.sessions }
+
+    private var layout: Layout {
+        Layout(placement: placement,
+               providers: max(store.snapshot.visible.count, 1),
+               sessions: sessions.count)
+    }
+
+    private var currentSize: CGSize { layout.size(for: state.mode) }
+    private var radius: CGFloat { state.mode == .mini ? 4 : 12 }
 
     var body: some View {
         ZStack(alignment: alignment) {
@@ -31,14 +35,13 @@ struct NotchRootView: View {
     /// instead of the tree being torn down and rebuilt mid-gesture.
     private var shell: some View {
         ZStack(alignment: alignment) {
-            layer(MiniNub(tone: tone, edge: placement.edge), visible: state.mode == .mini)
-            layer(PillContent(snapshot: store.snapshot, tone: tone, edge: placement.edge),
+            layer(MiniNub(tone: tone, layout: layout, working: sessions.anyWorking),
+                  visible: state.mode == .mini)
+            layer(PillContent(snapshot: store.snapshot, sessions: sessions, tone: tone, layout: layout),
                   visible: state.mode == .pill)
-            layer(
-                ExpandedContent(store: store, state: state, size: expandedSize,
-                                onHitTargets: onHitTargets),
-                visible: state.mode == .expanded
-            )
+            layer(ExpandedContent(store: store, state: state, layout: layout,
+                                  tone: tone, onHitTargets: onHitTargets),
+                  visible: state.mode == .expanded)
         }
         .frame(width: currentSize.width, height: currentSize.height, alignment: alignment)
         .background(Color.black)
@@ -65,22 +68,25 @@ struct NotchRootView: View {
     }
 }
 
-/// Work-mode nub: a sliver of colour, nothing else.
+/// Work-mode nub: a sliver of colour, nothing else. It still reports whether an agent
+/// is running, since that is the one thing worth knowing while hidden.
 private struct MiniNub: View {
     var tone: UsageTone
-    var edge: NotchEdge
+    var layout: Layout
+    var working: Bool
 
     var body: some View {
-        let size = NotchMode.mini.size(edge: edge)
+        let size = layout.size(for: .mini)
+        let colour = working ? AgentKind.claude.tint : tone.color
         Group {
-            if edge.isSide {
+            if layout.placement.edge.isSide {
                 VStack(spacing: 3) {
-                    Capsule().fill(tone.color.opacity(0.85)).frame(width: 3, height: 16)
+                    Capsule().fill(colour.opacity(0.85)).frame(width: 3, height: 16)
                     Capsule().fill(Color.white.opacity(0.18)).frame(width: 3, height: 8)
                 }
             } else {
                 HStack(spacing: 3) {
-                    Capsule().fill(tone.color.opacity(0.85)).frame(width: 16, height: 3)
+                    Capsule().fill(colour.opacity(0.85)).frame(width: 16, height: 3)
                     Capsule().fill(Color.white.opacity(0.18)).frame(width: 8, height: 3)
                 }
             }
@@ -89,20 +95,83 @@ private struct MiniNub: View {
     }
 }
 
-/// Resting pill: one compact reading per provider.
+/// Resting state. Island mode splits the readout either side of the cutout, the way
+/// a Live Activity does; the other placements lay it out in one run.
 private struct PillContent: View {
     var snapshot: UsageSnapshot
+    var sessions: [AgentSession]
     var tone: UsageTone
-    var edge: NotchEdge
+    var layout: Layout
+
+    private var lead: AgentSession? { sessions.first }
 
     var body: some View {
-        edge.isSide ? AnyView(vertical) : AnyView(horizontal)
+        let size = layout.size(for: .pill)
+        Group {
+            switch layout.placement.edge {
+            case .island: island(size)
+            case .left, .right: vertical(size)
+            case .top: horizontal(size)
+            }
+        }
     }
 
-    /// Side-mounted: readings stack down the pill so no text has to rotate.
-    private var vertical: some View {
-        let size = NotchMode.pill.size(edge: edge, providers: max(snapshot.visible.count, 1))
-        return VStack(spacing: 7) {
+    private func island(_ size: CGSize) -> some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                if let lead {
+                    SessionChip(session: lead)
+                    if sessions.count > 1 {
+                        Text("+\(sessions.count - 1)")
+                            .font(.system(size: 8.5, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
+                } else {
+                    ActivityBars(tint: tone.color, animating: false)
+                    Text("idle")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.35))
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(width: (size.width - layout.notchGap) / 2)
+            .padding(.leading, 12)
+
+            // The hardware cutout lives in this gap.
+            Color.clear.frame(width: layout.notchGap)
+
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                UsageStrip(snapshot: snapshot, tone: tone)
+            }
+            .frame(width: (size.width - layout.notchGap) / 2)
+            .padding(.trailing, 12)
+        }
+        .frame(width: size.width, height: size.height)
+    }
+
+    private func horizontal(_ size: CGSize) -> some View {
+        HStack(spacing: 9) {
+            if let lead {
+                SessionChip(session: lead, showProject: false)
+                if sessions.count > 1 {
+                    Text("+\(sessions.count - 1)")
+                        .font(.system(size: 8.5, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+                Divider().frame(height: 12).overlay(Color.white.opacity(0.12))
+            }
+            UsageStrip(snapshot: snapshot, tone: tone)
+        }
+        .padding(.horizontal, 11)
+        .frame(width: size.width, height: size.height)
+    }
+
+    private func vertical(_ size: CGSize) -> some View {
+        VStack(spacing: 7) {
+            ForEach(sessions.prefix(2)) { session in
+                ActivityBars(tint: session.kind.tint, animating: session.isWorking, height: 9)
+            }
             ForEach(snapshot.visible) { provider in
                 VStack(spacing: 2) {
                     Circle().fill(provider.tint).frame(width: 5, height: 5)
@@ -112,62 +181,69 @@ private struct PillContent: View {
                         .contentTransition(.numericText())
                 }
             }
-            if snapshot.visible.isEmpty {
-                Text("–")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.4))
-            }
             Capsule().fill(tone.color.opacity(0.9)).frame(width: 12, height: 3)
         }
         .padding(.vertical, 8)
         .frame(width: size.width, height: size.height)
     }
-
-    private var horizontal: some View {
-        HStack(spacing: 10) {
-            ForEach(snapshot.visible) { provider in
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(provider.tint)
-                        .frame(width: 5, height: 5)
-                    if let percent = provider.headlineFraction.map({ Int(($0 * 100).rounded()) }) {
-                        Text("\(percent)%")
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.92))
-                            .contentTransition(.numericText())
-                    } else {
-                        Text("–")
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.4))
-                    }
-                }
-            }
-            if snapshot.visible.isEmpty {
-                Text("no data")
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.45))
-            }
-            Spacer(minLength: 0)
-            Capsule()
-                .fill(tone.color.opacity(0.9))
-                .frame(width: 14, height: 3)
-        }
-        .padding(.horizontal, 11)
-        .frame(width: NotchMode.pill.size(edge: .top).width,
-               height: NotchMode.pill.size(edge: .top).height)
-    }
 }
 
-/// Opened panel: full rings, windows, spend and reset countdowns.
+/// Opened panel: live sessions on top, then the usage rings.
 private struct ExpandedContent: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var state: NotchState
-    var size: CGSize
+    var layout: Layout
+    var tone: UsageTone
     var onHitTargets: ([HitTarget]) -> Void
 
     var body: some View {
+        let size = layout.size(for: .expanded)
+        VStack(spacing: 0) {
+            if layout.placement.edge.isIsland {
+                // Reserve the band the hardware notch sits in, and use it the way a
+                // Live Activity does rather than leaving dead black.
+                islandBand
+                    .frame(height: layout.placement.notch.height)
+            }
+            body(width: size.width)
+        }
+        .frame(width: size.width, height: size.height, alignment: .top)
+    }
+
+    private var islandBand: some View {
+        HStack(spacing: 0) {
+            HStack {
+                Text("LLM USAGE")
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .tracking(1.1)
+                    .foregroundStyle(.white.opacity(0.5))
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 14)
+            Color.clear.frame(width: layout.notchGap)
+            HStack {
+                Spacer(minLength: 0)
+                UsageStrip(snapshot: store.snapshot, tone: tone, showToneBar: false)
+            }
+            .padding(.trailing, 14)
+        }
+    }
+
+    private func body(width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            header
+            if !layout.placement.edge.isIsland { header }
+
+            if !store.sessions.isEmpty {
+                sectionTitle("AGENTS")
+                ForEach(store.sessions) { session in
+                    SessionRow(session: session)
+                }
+                Rectangle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(height: 1)
+                    .padding(.vertical, 1)
+            }
+
             if store.snapshot.visible.isEmpty {
                 Text(store.snapshot.providers.first?.footnote ?? "Looking for local sessions…")
                     .font(.system(size: 11))
@@ -188,9 +264,16 @@ private struct ExpandedContent: View {
             footer
         }
         .padding(.horizontal, 14)
-        .padding(.top, 10)
+        .padding(.top, layout.placement.edge.isIsland ? 4 : 10)
         .padding(.bottom, 10)
-        .frame(width: size.width, height: size.height, alignment: .top)
+        .frame(width: width, alignment: .leading)
+    }
+
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 8.5, weight: .bold, design: .rounded))
+            .tracking(1.0)
+            .foregroundStyle(.white.opacity(0.35))
     }
 
     private var header: some View {

@@ -6,25 +6,6 @@ enum NotchMode: Equatable {
     case pill        // resting state
     case expanded    // hovered / opened
 
-    /// Resting sizes differ per edge: a horizontal pill under the notch, a slim
-    /// vertical one against a side.
-    func size(edge: NotchEdge, providers: Int = 2) -> CGSize {
-        switch self {
-        case .mini:
-            return edge.isSide ? CGSize(width: 9, height: 46) : CGSize(width: 52, height: 9)
-        case .pill:
-            return edge.isSide
-                ? CGSize(width: 38, height: 22 + CGFloat(max(providers, 1)) * 26)
-                : CGSize(width: 158, height: 30)
-        case .expanded:
-            return NotchMode.expandedSize(providers: providers)
-        }
-    }
-
-    /// The panel grows with the number of providers instead of leaving dead space.
-    static func expandedSize(providers: Int) -> CGSize {
-        CGSize(width: 326, height: 44 + CGFloat(max(providers, 1)) * 66 + 26)
-    }
 }
 
 /// One place for the motion curves so the shape, the contents and the shadow all

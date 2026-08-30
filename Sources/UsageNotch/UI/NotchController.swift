@@ -131,6 +131,15 @@ final class NotchController: NSObject, NSMenuDelegate {
             .sink { [weak self] _ in self?.positionPanel() }
             .store(in: &bag)
 
+        store.$sessions
+            .map(\.count)
+            .removeDuplicates()
+            .sink { [weak self] count in
+                self?.debugLog("live sessions=\(count)")
+                self?.positionPanel()
+            }
+            .store(in: &bag)
+
         NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
             .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.rebuildLayout() }
@@ -143,6 +152,7 @@ final class NotchController: NSObject, NSMenuDelegate {
 
         store.claude.account.onUpdate = { [weak self] in self?.refresh(spin: false) }
 
+        state.placement = currentPlacement()
         state.mode = state.restingMode
         updateHitRegion(for: state.mode)
         store.start()
@@ -187,32 +197,46 @@ final class NotchController: NSObject, NSMenuDelegate {
         )
     }
 
+    private func layout(providersFloor: Int = 1) -> Layout {
+        Layout(placement: currentPlacement(),
+               providers: max(store.snapshot.visible.count, providersFloor),
+               sessions: store.sessions.count)
+    }
+
+    private func currentPlacement() -> Placement {
+        Placement.current(notch: geometry.islandSize)
+    }
+
     /// Big enough for the largest state, so the window never resizes mid-animation.
     private func windowSize() -> CGSize {
-        let providers = max(store.snapshot.visible.count, 2)
-        let expanded = NotchMode.expandedSize(providers: providers)
-        let pill = NotchMode.pill.size(edge: Settings.shared.edge, providers: providers)
+        let l = layout(providersFloor: 2)
+        let expanded = l.size(for: .expanded)
+        let pill = l.size(for: .pill)
         return CGSize(width: max(expanded.width, pill.width) + Self.shadowMargin,
                       height: max(expanded.height, pill.height) + Self.shadowMargin)
     }
 
     /// Base placement plus the user's drag offset, clamped so the pill stays on screen.
     private func windowFrame() -> CGRect {
-        let placement = Placement.current
+        let placement = currentPlacement()
         let size = windowSize()
         var frame = geometry.frame(for: size, placement: placement)
         switch placement.edge {
         case .top: frame.origin.x += CGFloat(Settings.shared.topOffset)
         case .left, .right: frame.origin.y += CGFloat(Settings.shared.sideOffset)
+        case .island: break   // island mode is pinned to the notch by definition
         }
 
-        // Keep the pill itself (not the padded window) fully on screen.
+        // Keep the pill itself (not the padded window) fully on screen. Top and island
+        // placements are meant to occupy the menu-bar strip, so they clamp against the
+        // full screen; side placements stay clear of the menu bar.
         let content = placement.contentRect(window: size, content: currentContentSize())
         let screen = geometry.screen.frame
+        let ceiling = placement.edge.isSide ? geometry.screen.visibleFrame.maxY : screen.maxY
         let minX = screen.minX - content.minX
         let maxX = screen.maxX - content.maxX
         let minY = screen.minY + (size.height - content.maxY)
-        let maxY = geometry.screen.visibleFrame.maxY - (size.height - content.minY)
+        let maxY = ceiling - (size.height - content.minY)
         frame.origin.x = min(max(frame.origin.x, minX), maxX)
         frame.origin.y = min(max(frame.origin.y, minY), maxY)
         return CGRect(x: frame.origin.x.rounded(), y: frame.origin.y.rounded(),
@@ -220,8 +244,7 @@ final class NotchController: NSObject, NSMenuDelegate {
     }
 
     private func currentContentSize(for mode: NotchMode? = nil) -> CGSize {
-        let providers = max(store.snapshot.visible.count, 1)
-        return (mode ?? state.mode).size(edge: Settings.shared.edge, providers: providers)
+        layout().size(for: mode ?? state.mode)
     }
 
     private func positionPanel() {
@@ -232,7 +255,7 @@ final class NotchController: NSObject, NSMenuDelegate {
 
     private func rebuildLayout() {
         geometry = NotchGeometry.current()
-        state.placement = .current
+        state.placement = currentPlacement()
         positionPanel()
     }
 
@@ -240,7 +263,7 @@ final class NotchController: NSObject, NSMenuDelegate {
     /// oversized) window is transparent to whatever is underneath.
     private func updateHitRegion(for mode: NotchMode) {
         let content = currentContentSize(for: mode)
-        hosting.interactiveRect = Placement.current.contentRect(window: panel.frame.size, content: content)
+        hosting.interactiveRect = currentPlacement().contentRect(window: panel.frame.size, content: content)
         hosting.targetsEnabled = mode == .expanded
     }
 
@@ -273,7 +296,7 @@ final class NotchController: NSObject, NSMenuDelegate {
     /// Screen rect of the drawn pill, in bottom-left coordinates.
     private func contentScreenRect() -> CGRect {
         let window = panel.frame
-        let rect = Placement.current.contentRect(window: window.size, content: currentContentSize())
+        let rect = currentPlacement().contentRect(window: window.size, content: currentContentSize())
         return CGRect(x: window.minX + rect.minX,
                       y: window.maxY - rect.maxY,
                       width: rect.width, height: rect.height)
@@ -309,6 +332,7 @@ final class NotchController: NSObject, NSMenuDelegate {
         else if cursor.x < screen.minX + Self.snapBand { edge = .left }
         else if cursor.x > screen.maxX - Self.snapBand { edge = .right }
 
+        if edge == .island { edge = .top }
         if edge != Settings.shared.edge {
             Settings.shared.edge = edge
             state.placement = .current
@@ -322,6 +346,7 @@ final class NotchController: NSObject, NSMenuDelegate {
             switch edge {
             case .top: Settings.shared.topOffset = origin.topOffset + Double(cursor.x - origin.cursor.x)
             case .left, .right: Settings.shared.sideOffset = origin.sideOffset + Double(cursor.y - origin.cursor.y)
+            case .island: break
             }
         }
         positionPanel()
@@ -339,13 +364,15 @@ final class NotchController: NSObject, NSMenuDelegate {
         Settings.shared.topOffset = 0
         Settings.shared.sideOffset = 0
         let size = windowSize()
-        let base = geometry.frame(for: size, placement: .current)
-        let content = Placement.current.contentRect(window: size, content: currentContentSize())
+        let base = geometry.frame(for: size, placement: currentPlacement())
+        let content = currentPlacement().contentRect(window: size, content: currentContentSize())
         switch edge {
         case .top:
             Settings.shared.topOffset = Double(cursor.x - (base.minX + content.midX))
         case .left, .right:
             Settings.shared.sideOffset = Double(cursor.y - (base.maxY - content.midY))
+        case .island:
+            break
         }
     }
 
@@ -407,6 +434,12 @@ final class NotchController: NSObject, NSMenuDelegate {
         default: break
         }
         refresh(spin: false)
+    }
+
+    @objc private func menuToggleAgents() {
+        Settings.shared.showAgents.toggle()
+        store.refreshActivity()
+        positionPanel()
     }
 
     @objc private func menuSetClaudeMetric(_ sender: NSMenuItem) {
@@ -557,6 +590,10 @@ final class NotchController: NSObject, NSMenuDelegate {
         codex.representedObject = "codex"
         codex.state = s.showCodex ? .on : .off
         sources.addItem(codex)
+        sources.addItem(.separator())
+        let agents = item("Live agent sessions", #selector(menuToggleAgents))
+        agents.state = s.showAgents ? .on : .off
+        sources.addItem(agents)
         sources.addItem(.separator())
         for metric in ClaudeMetric.allCases {
             let mi = item("Claude ring: \(metric.title)", #selector(menuSetClaudeMetric(_:)))

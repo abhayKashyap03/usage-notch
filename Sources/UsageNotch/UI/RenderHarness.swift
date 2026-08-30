@@ -22,15 +22,19 @@ enum RenderHarness {
             store.refreshBlocking()
         }
 
-        let providers = max(store.snapshot.visible.count, 1)
         let edge = Settings.shared.edge
+        // Screenshots of island mode need notch metrics even on a screen without one.
+        let notch = NotchGeometry.current().islandSize
         for (mode, name) in [(NotchMode.mini, "mini"), (.pill, "pill"), (.expanded, "expanded")] {
             state.mode = mode
-            state.placement = Placement(edge: edge, anchor: .rightOfNotch)
+            state.placement = Placement(edge: edge, anchor: .rightOfNotch, notch: notch)
             let root = NotchRootView(store: store, state: state,
                                      onRefresh: {}, onToggleMini: {},
                                      onHitTargets: { _ in })
-            let size = mode.size(edge: edge, providers: providers)
+            let layout = Layout(placement: state.placement,
+                                providers: max(store.snapshot.visible.count, 1),
+                                sessions: store.sessions.count)
+            let size = layout.size(for: mode)
             snapshot(root, size: size, to: outputDirectory + "/\(name).png")
             print("rendered \(name).png  \(Int(size.width))x\(Int(size.height))")
         }

@@ -1,18 +1,40 @@
 # Usage Notch
 
-An LLM usage meter that clips onto the edge of your Mac's screen. It shows how much
-of your Claude Code and Codex rate-limit windows you have burned, expands into a
-full panel on hover, and shrinks to a sliver ("work mode") when you want it gone.
+An LLM usage meter and live agent monitor that clips onto the edge of your Mac's
+screen — or wraps around the notch itself, Dynamic Island style. It shows how much of
+your Claude Code and Codex rate-limit windows you have burned, what your open agent
+sessions are doing right now, expands into a full panel on hover, and shrinks to a
+sliver ("work mode") when you want it gone.
 
-![expanded panel](docs/expanded.png)
+![island](docs/island-pill.png)
+
+![expanded panel](docs/island-expanded.png)
 
 | state | top edge | side edge |
 | --- | --- | --- |
 | resting | ![pill](docs/pill.png) | ![side pill](docs/side-pill.png) |
 | work mode | ![mini](docs/mini.png) | ![side mini](docs/side-mini.png) |
 
-Hovering either one opens the same panel: a 5-hour ring, a weekly meter, tokens,
-estimated spend and a reset countdown per provider.
+Hovering any of them opens the same panel: your live agent sessions, then a 5-hour
+ring, weekly meter, tokens, estimated spend and reset countdown per provider.
+
+## Live agent sessions
+
+Both CLIs write a transcript while they work, and the last record in it says what the
+agent is doing right now. Usage Notch tails those files every couple of seconds and
+turns them into a Live Activity: which project, which branch, whether it is thinking,
+running a tool (the tool's name), responding, or waiting on you — plus how long the
+session has been open.
+
+- Claude Code: the newest `assistant` record's `tool_use` block names the running
+  tool; a trailing `tool_result` means it is thinking again.
+- Codex: `agent_reasoning`, `exec_command_begin`, `patch_apply_begin` and friends map
+  the same way.
+
+After 75 seconds of silence a session flips to "waiting for you", and the polling
+backs off. Sessions untouched for 20 minutes drop off the list, which is capped at
+four so the panel stays glanceable. Turn the whole thing off in *Sources ▸ Live agent
+sessions*.
 
 ## Where it sits
 
@@ -21,8 +43,14 @@ pill itself.
 
 - **Display** — automatic (prefers the notched built-in screen), or any connected
   display by name. Pick your external monitor here.
-- **Attach to** — *Top (notch)*, *Left edge* or *Right edge*. Side-mounted, the pill
-  turns into a slim vertical bar hugging the screen edge, and the panel opens inward.
+- **Attach to** — *Dynamic island*, *Top*, *Left edge* or *Right edge*.
+  - **Dynamic island** wraps the hardware notch: the shape is flush with the top of
+    the screen and wide enough that the cutout disappears inside it, with the agent
+    readout on one wing and usage on the other. Opened, the notch band becomes the
+    panel's header. On a screen without a notch it renders as a floating island of
+    the same proportions.
+  - **Side** turns the pill into a slim vertical bar hugging the screen edge, with
+    the panel opening inward.
 - **Position** — only meaningful on the top edge: right of the notch (default), left
   of the notch, or centred under it. On a display without a notch these read
   "right/left of center" and hang below the middle of the menu bar.
@@ -104,7 +132,7 @@ Requires macOS 14+ and a Swift 5.9+ toolchain (Command Line Tools are fine).
 ### Diagnostics
 
 ```bash
-./build/UsageNotch.app/Contents/MacOS/UsageNotch --dump       # what the providers see
+./build/UsageNotch.app/Contents/MacOS/UsageNotch --dump       # usage + live sessions
 ./build/UsageNotch.app/Contents/MacOS/UsageNotch --placement  # where the pill would land, per display
 ./build/UsageNotch.app/Contents/MacOS/UsageNotch --render ./docs  # re-render the screenshots
 USAGENOTCH_DEBUG=1 ./build/UsageNotch.app/Contents/MacOS/UsageNotch
@@ -132,11 +160,13 @@ UI/NotchController      panel + status item + refresh loop + menu + click routin
 UI/NotchPanel           borderless non-activating panel above the menu bar
 UI/NotchGeometry        notch metrics and per-display, per-edge placement
 UI/Placement            edge + anchor -> alignment, content rect, corner radii
+UI/Layout               every size decision, shared by AppKit hit testing and SwiftUI
+UI/ActivityViews        equaliser bars, session chips and rows
 UI/NotchState           mini / pill / expanded, hover debounce, motion curves
 UI/Interaction          hover tracking and rect reporting for AppKit hit routing
 UI/NotchRootView        SwiftUI tree for the three states
 Model/UsageStore        provider fan-out, deadlines, published snapshot
-Providers/*             Claude Code, Codex, optional Anthropic account, cache, pricing
+Providers/*             Claude Code, Codex, agent activity, account, cache, pricing
 ```
 
 Two decisions are load-bearing:

@@ -9,6 +9,13 @@ struct NotchGeometry {
     let topInset: CGFloat
     let hasNotch: Bool
 
+    /// What island mode should wrap. Real notch metrics when there is one, otherwise
+    /// a virtual island of similar proportions so the mode still works.
+    var islandSize: CGSize {
+        hasNotch ? CGSize(width: anchorRect.width, height: anchorRect.height)
+                 : CGSize(width: 180, height: max(topInset, 26))
+    }
+
     static func current(preferring name: String? = Settings.shared.preferredScreen) -> NotchGeometry {
         // An explicit choice wins; otherwise prefer the notched built-in display,
         // then whichever screen currently owns the menu bar.
@@ -41,6 +48,10 @@ struct NotchGeometry {
         switch placement.edge {
         case .top:
             return topFrame(for: size, anchor: placement.anchor)
+        case .island:
+            let x = anchorRect.midX - size.width / 2
+            return CGRect(x: x.rounded(), y: (screen.frame.maxY - size.height).rounded(),
+                          width: size.width, height: size.height)
         case .left, .right:
             let x = placement.edge == .left
                 ? screen.frame.minX

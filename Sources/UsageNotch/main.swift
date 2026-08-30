@@ -26,6 +26,11 @@ if CommandLine.arguments.contains("--dump") {
         print("  tokens=\(Fmt.tokens(usage.tokens)) cost=\(usage.costUSD.map(Fmt.money) ?? "n/a") plan=\(usage.plan ?? "n/a") estimated=\(usage.session.estimated)")
         print("  note=\(usage.footnote ?? "-")")
     }
+    for session in AgentActivityProvider().sessions() {
+        let age = Int(Date().timeIntervalSince(session.lastActivity))
+        print("\(session.kind.rawValue) session: \(session.project) — \(session.detail) " +
+              "(\(session.isWorking ? "working" : "idle"), up \(Fmt.elapsed(session.elapsed)), last event \(age)s ago)")
+    }
     exit(0)
 }
 
@@ -34,12 +39,11 @@ if CommandLine.arguments.contains("--dump") {
 if CommandLine.arguments.contains("--placement") {
     for screen in NSScreen.screens {
         let geo = NotchGeometry.current(preferring: screen.localizedName)
-        let size = NotchMode.expandedSize(providers: 2)
-        let window = CGSize(width: size.width + 36, height: size.height + 36)
+        let window = CGSize(width: 400, height: 280)
         print("\(screen.localizedName)  notch=\(geo.hasNotch)  topInset=\(geo.topInset)  anchorRect=\(geo.anchorRect)")
         for edge in NotchEdge.allCases {
             for anchor in (edge == .top ? NotchAnchor.allCases : [.center]) {
-                let placement = Placement(edge: edge, anchor: anchor)
+                let placement = Placement(edge: edge, anchor: anchor, notch: geo.islandSize)
                 print("   \(edge.rawValue)/\(anchor.rawValue): \(geo.frame(for: window, placement: placement))")
             }
         }

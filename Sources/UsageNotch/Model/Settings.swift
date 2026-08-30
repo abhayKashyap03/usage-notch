@@ -3,17 +3,19 @@ import AppKit
 
 /// Which screen edge the pill is attached to.
 enum NotchEdge: String, CaseIterable {
-    case top, left, right
+    case top, island, left, right
 
     var title: String {
         switch self {
-        case .top: return "Top (notch)"
+        case .top: return "Top (beside notch)"
+        case .island: return "Dynamic island (around notch)"
         case .left: return "Left edge"
         case .right: return "Right edge"
         }
     }
 
-    var isSide: Bool { self != .top }
+    var isSide: Bool { self == .left || self == .right }
+    var isIsland: Bool { self == .island }
 }
 
 /// Where the pill hangs relative to the notch (or the menu bar on notch-less Macs).
@@ -56,6 +58,7 @@ final class Settings {
         static let edge = "edge"
         static let sideOffset = "sideOffset"
         static let topOffset = "topOffset"
+        static let showAgents = "showAgents"
     }
 
     private init() {
@@ -73,6 +76,7 @@ final class Settings {
             K.edge: NotchEdge.top.rawValue,
             K.sideOffset: 0.0,
             K.topOffset: 0.0,
+            K.showAgents: true,
         ])
     }
 
@@ -107,6 +111,12 @@ final class Settings {
     var miniMode: Bool {
         get { d.bool(forKey: K.hidden) }
         set { d.set(newValue, forKey: K.hidden) }
+    }
+
+    /// Show live Claude Code / Codex sessions, Dynamic-Island style.
+    var showAgents: Bool {
+        get { d.bool(forKey: K.showAgents) }
+        set { d.set(newValue, forKey: K.showAgents) }
     }
 
     var showClaude: Bool {

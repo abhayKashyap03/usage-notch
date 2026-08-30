@@ -17,13 +17,20 @@ func usageDebug(_ message: @autoclosure () -> String) {
 final class UsageStore: ObservableObject {
     @Published private(set) var snapshot = UsageSnapshot()
     @Published private(set) var isRefreshing = false
+    /// Sessions open right now. Refreshed far more often than usage: this is the part
+    /// that has to feel live.
+    @Published private(set) var sessions: [AgentSession] = []
 
     let claude = ClaudeCodeProvider()
     let codex = CodexProvider()
+    private let activity = AgentActivityProvider()
 
     private let pool = DispatchQueue(label: "com.abhaykashyap.usagenotch.providers",
                                      qos: .utility, attributes: .concurrent)
     private var timer: Timer?
+    private var activityTimer: Timer?
+    private var activityInterval: TimeInterval = 0
+    private var activityBusy = false
     /// Providers whose previous fetch never returned; they are not launched again.
     private var stalled: Set<String> = []
 
@@ -32,6 +39,41 @@ final class UsageStore: ObservableObject {
     func start() {
         refresh()
         scheduleTimer()
+        refreshActivity()
+    }
+
+    /// Tail the live transcripts. Cheap enough to run every couple of seconds while an
+    /// agent is actually working, and backs off when nothing is happening.
+    func refreshActivity() {
+        guard Settings.shared.showAgents else {
+            if !sessions.isEmpty { sessions = [] }
+            scheduleActivityTimer(interval: 8)
+            return
+        }
+        guard !activityBusy else { return }
+        activityBusy = true
+
+        pool.async { [weak self, activity] in
+            let found = activity.sessions()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.activityBusy = false
+                if found != self.sessions { self.sessions = found }
+                self.scheduleActivityTimer(interval: found.anyWorking ? 2 : 6)
+            }
+        }
+    }
+
+    private func scheduleActivityTimer(interval: TimeInterval) {
+        guard interval != activityInterval || activityTimer == nil else { return }
+        activityInterval = interval
+        activityTimer?.invalidate()
+        let t = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshActivity() }
+        }
+        t.tolerance = interval / 4
+        RunLoop.main.add(t, forMode: .common)
+        activityTimer = t
     }
 
     func scheduleTimer() {
@@ -74,6 +116,14 @@ final class UsageStore: ObservableObject {
         )
         codex.footnote = nil
         snapshot = UsageSnapshot(providers: [claude, codex], updatedAt: now)
+        sessions = [
+            AgentSession(id: "demo-1", kind: .claude, project: "usage-notch", branch: "main",
+                         detail: "Edit", startedAt: now.addingTimeInterval(-14 * 60),
+                         lastActivity: now, isWorking: true),
+            AgentSession(id: "demo-2", kind: .codex, project: "api-gateway", branch: nil,
+                         detail: "waiting for you", startedAt: now.addingTimeInterval(-52 * 60),
+                         lastActivity: now.addingTimeInterval(-140), isWorking: false),
+        ]
     }
 
     func refresh() {

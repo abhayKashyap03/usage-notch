@@ -5,9 +5,16 @@ import SwiftUI
 struct Placement: Equatable {
     var edge: NotchEdge
     var anchor: NotchAnchor
+    /// Size of the hardware notch, needed by island mode so content clears the cutout.
+    /// Falls back to a virtual island on screens that have no notch.
+    var notch: CGSize = CGSize(width: 180, height: 32)
 
     static var current: Placement {
         Placement(edge: Settings.shared.edge, anchor: Settings.shared.anchor)
+    }
+
+    static func current(notch: CGSize) -> Placement {
+        Placement(edge: Settings.shared.edge, anchor: Settings.shared.anchor, notch: notch)
     }
 
     /// SwiftUI alignment for the content inside the (larger) window.
@@ -21,6 +28,7 @@ struct Placement: Equatable {
             }
         case .left: return .leading
         case .right: return .trailing
+        case .island: return .top
         }
     }
 
@@ -40,6 +48,8 @@ struct Placement: Equatable {
         case .right:
             origin.x = window.width - content.width
             origin.y = (window.height - content.height) / 2
+        case .island:
+            origin.x = (window.width - content.width) / 2
         }
         return CGRect(origin: origin, size: content)
     }
@@ -47,7 +57,7 @@ struct Placement: Equatable {
     /// Corner radii, rounded only on the sides facing away from the screen edge.
     func radii(_ r: CGFloat) -> Corners {
         switch edge {
-        case .top: return Corners(topLeft: 0, topRight: 0, bottomRight: r, bottomLeft: r)
+        case .top, .island: return Corners(topLeft: 0, topRight: 0, bottomRight: r, bottomLeft: r)
         case .left: return Corners(topLeft: 0, topRight: r, bottomRight: r, bottomLeft: 0)
         case .right: return Corners(topLeft: r, topRight: 0, bottomRight: 0, bottomLeft: r)
         }
