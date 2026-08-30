@@ -140,8 +140,8 @@ final class UsageStore: ObservableObject {
             id: "claude-code", name: "Claude Code", glyph: "CC",
             tint: Color(red: 0.85, green: 0.53, blue: 0.35),
             session: UsageWindow(fraction: 0.38, resetsAt: now.addingTimeInterval(2 * 3600 + 41 * 60),
-                                 label: "5h", estimated: false),
-            week: UsageWindow(fraction: 0.21, resetsAt: nil, label: "7d", estimated: false),
+                                 label: "5h", length: 5 * 3600, estimated: false),
+            week: UsageWindow(fraction: 0.21, resetsAt: nil, label: "7d", length: 7 * 24 * 3600, estimated: false),
             tokens: 4_200_000, costUSD: nil, plan: "max", lastActivity: now, status: .ok
         )
         claude.footnote = nil
@@ -149,8 +149,8 @@ final class UsageStore: ObservableObject {
             id: "codex", name: "Codex", glyph: "CX",
             tint: Color(red: 0.44, green: 0.72, blue: 0.98),
             session: UsageWindow(fraction: 0.72, resetsAt: now.addingTimeInterval(3 * 3600 + 12 * 60),
-                                 label: "5h", estimated: false),
-            week: UsageWindow(fraction: 0.46, resetsAt: nil, label: "7d", estimated: false),
+                                 label: "5h", length: 5 * 3600, estimated: false),
+            week: UsageWindow(fraction: 0.46, resetsAt: nil, label: "7d", length: 7 * 24 * 3600, estimated: false),
             tokens: 1_800_000, costUSD: nil, plan: "plus", lastActivity: now, status: .ok
         )
         codex.footnote = nil

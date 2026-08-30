@@ -165,7 +165,7 @@ private struct PillContent: View {
             // The hardware cutout lives in this gap.
             Color.clear.frame(width: layout.notchGap)
 
-            UsageStrip(snapshot: snapshot, tone: tone, showToneBar: false)
+            UsageStrip(snapshot: snapshot, tone: tone, showToneBar: false, style: .rings)
                 .fixedSize()
                 .padding(.horizontal, Style.wingInset)
                 .frame(width: wing)
@@ -184,7 +184,7 @@ private struct PillContent: View {
                 }
                 Divider().frame(height: 12).overlay(Color.white.opacity(0.12))
             }
-            UsageStrip(snapshot: snapshot, tone: tone)
+            UsageStrip(snapshot: snapshot, tone: tone, showToneBar: false, style: .rings)
         }
         .fixedSize()
         .padding(.horizontal, Style.pillInset)
@@ -197,13 +197,11 @@ private struct PillContent: View {
                 ActivityBars(tint: session.kind.tint, animating: session.isWorking, height: 9)
             }
             ForEach(snapshot.visible) { provider in
-                VStack(spacing: 2) {
-                    Circle().fill(provider.tint).frame(width: 5, height: 5)
-                    Text(provider.headlineFraction.map { "\(Int(($0 * 100).rounded()))" } ?? "–")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.92))
-                        .contentTransition(.numericText())
-                }
+                UsageRing(percent: provider.session.percent ?? provider.week.percent,
+                          tint: provider.tint,
+                          resetsAt: provider.session.resetsAt,
+                          windowLength: provider.session.length,
+                          diameter: 22)
             }
             Capsule().fill(tone.color.opacity(0.9)).frame(width: 12, height: 3)
         }

@@ -116,3 +116,42 @@ struct ProviderBadge: View {
             .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }
+
+/// Compact readout for the collapsed pill: a ring that fills as the window runs
+/// down, with the usage percentage inside it.
+///
+/// Two different quantities share one glyph on purpose — the number answers "how
+/// much have I used", the arc answers "how long until it resets", and those are the
+/// only two things worth knowing at a glance.
+struct UsageRing: View {
+    var percent: Int?
+    var tint: Color
+    var resetsAt: Date?
+    var windowLength: TimeInterval?
+    var diameter: CGFloat = 20
+
+    var body: some View {
+        // Redraws on its own so the arc creeps forward between usage refreshes.
+        TimelineView(.periodic(from: .now, by: 20)) { context in
+            ZStack {
+                Circle()
+                    .stroke(Color.white.opacity(0.13), lineWidth: 2)
+                Circle()
+                    .trim(from: 0, to: elapsed(now: context.date))
+                    .stroke(tint.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Text(percent.map(String.init) ?? "–")
+                    .font(.system(size: diameter * 0.44, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.95))
+                    .contentTransition(.numericText())
+            }
+            .frame(width: diameter, height: diameter)
+        }
+    }
+
+    private func elapsed(now: Date) -> CGFloat {
+        guard let resetsAt, let windowLength, windowLength > 0 else { return 0 }
+        let remaining = resetsAt.timeIntervalSince(now)
+        return CGFloat(min(max(1 - remaining / windowLength, 0), 1))
+    }
+}

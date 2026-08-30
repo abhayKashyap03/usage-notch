@@ -155,24 +155,39 @@ struct WorkspaceRow: View {
 
 /// Compact usage readout: one dot and percentage per provider.
 struct UsageStrip: View {
+    enum Style {
+        /// A dot and a percentage — used inside the opened panel.
+        case dots
+        /// A ring per provider, filling as the window runs down. Used by the pill.
+        case rings
+    }
+
     var snapshot: UsageSnapshot
     var tone: UsageTone
     var showToneBar = true
+    var style: Style = .dots
 
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: style == .rings ? 7 : 9) {
             ForEach(snapshot.visible) { provider in
-                HStack(spacing: 4) {
-                    Circle().fill(provider.tint).frame(width: 5, height: 5)
-                    if let percent = provider.headlineFraction.map({ Int(($0 * 100).rounded()) }) {
-                        Text("\(percent)%")
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.92))
-                            .contentTransition(.numericText())
-                    } else {
-                        Text("–")
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.4))
+                if style == .rings {
+                    UsageRing(percent: provider.session.percent ?? provider.week.percent,
+                              tint: ringTint(provider),
+                              resetsAt: provider.session.resetsAt,
+                              windowLength: provider.session.length)
+                } else {
+                    HStack(spacing: 4) {
+                        Circle().fill(provider.tint).frame(width: 5, height: 5)
+                        if let percent = provider.headlineFraction.map({ Int(($0 * 100).rounded()) }) {
+                            Text("\(percent)%")
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.92))
+                                .contentTransition(.numericText())
+                        } else {
+                            Text("–")
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
                     }
                 }
             }
@@ -185,5 +200,11 @@ struct UsageStrip: View {
                 Capsule().fill(tone.color.opacity(0.9)).frame(width: 14, height: 3)
             }
         }
+    }
+
+    /// The ring keeps the provider's colour until usage gets serious, then warns.
+    private func ringTint(_ provider: ProviderUsage) -> Color {
+        let tone = UsageTone.forFraction(provider.headlineFraction)
+        return tone == .calm ? provider.tint : tone.color
     }
 }

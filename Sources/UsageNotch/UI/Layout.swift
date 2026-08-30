@@ -49,6 +49,11 @@ struct Layout: Equatable {
         return 10 + 6 + max(text, 34) + badge + 12
     }
 
+    /// Rings in the pill: fixed width each, so no text measurement is needed.
+    private var ringsContent: CGFloat {
+        CGFloat(max(providers, 1)) * 20 + CGFloat(max(providers - 1, 0)) * 7 + 8
+    }
+
     /// A dot plus a percentage per provider, then the tone bar. Measured, because a
     /// "100%" is meaningfully wider than a "3%" and the pill has no slack to give.
     private var trailContent: CGFloat {
@@ -60,7 +65,7 @@ struct Layout: Equatable {
 
     /// Wings are kept equal so the gap stays centred on the hardware notch.
     var islandWing: CGFloat {
-        max(leadContent, trailContent) + Style.wingInset * 2
+        max(leadContent, ringsContent) + Style.wingInset * 2
     }
 
     /// The opened panel keeps a band either side of the notch too: clock and refresh
@@ -90,7 +95,7 @@ struct Layout: Equatable {
         case .mini: return CGSize(width: 52, height: 9)
         case .pill:
             let lead = sessions > 0 ? leadContent + 12 : 0   // chip plus its divider
-            return CGSize(width: lead + trailContent + Style.pillInset * 2, height: 30)
+            return CGSize(width: lead + ringsContent + Style.pillInset * 2, height: 30)
         case .expanded: return CGSize(width: 326, height: panelBody)
         }
     }
@@ -100,7 +105,7 @@ struct Layout: Equatable {
         case .mini: return CGSize(width: 9, height: 46)
         case .pill:
             let rows = CGFloat(max(providers, 1)) * 26 + CGFloat(sessions) * 20
-            return CGSize(width: 38, height: 22 + rows)
+            return CGSize(width: 40, height: 22 + rows)
         case .expanded: return CGSize(width: 326, height: panelBody)
         }
     }

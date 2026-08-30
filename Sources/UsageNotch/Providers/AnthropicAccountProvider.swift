@@ -165,7 +165,8 @@ final class AnthropicAccountProvider: @unchecked Sendable {
             var resets: Date?
             if let epoch = d["resets_at"] as? Double { resets = Date(timeIntervalSince1970: epoch) }
             if let iso = d["resets_at"] as? String { resets = ISO8601.parse(iso) }
-            return UsageWindow(fraction: min(fraction, 1.4), resetsAt: resets, label: label, estimated: false)
+            let length: TimeInterval = label == "5h" ? 5 * 3600 : 7 * 24 * 3600
+            return UsageWindow(fraction: min(fraction, 1.4), resetsAt: resets, label: label, length: length, estimated: false)
         }
 
         for (key, value) in root {

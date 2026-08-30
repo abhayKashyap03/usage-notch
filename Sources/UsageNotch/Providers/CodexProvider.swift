@@ -16,8 +16,8 @@ final class CodexProvider: UsageProvider, @unchecked Sendable {
         var usage = ProviderUsage(
             id: id, name: "Codex", glyph: "CX",
             tint: Color(red: 0.44, green: 0.72, blue: 0.98),
-            session: UsageWindow(fraction: nil, resetsAt: nil, label: "5h", estimated: false),
-            week: UsageWindow(fraction: nil, resetsAt: nil, label: "7d", estimated: false),
+            session: UsageWindow(fraction: nil, resetsAt: nil, label: "5h", length: 5 * 3600, estimated: false),
+            week: UsageWindow(fraction: nil, resetsAt: nil, label: "7d", length: 7 * 24 * 3600, estimated: false),
             tokens: 0, costUSD: nil, plan: nil, lastActivity: nil, status: .idle
         )
 
@@ -42,11 +42,13 @@ final class CodexProvider: UsageProvider, @unchecked Sendable {
                 usage.session.fraction = primary.percent / 100
                 usage.session.resetsAt = primary.resetsAt
                 usage.session.label = Self.label(minutes: primary.windowMinutes, fallback: "5h")
+                if let minutes = primary.windowMinutes { usage.session.length = TimeInterval(minutes) * 60 }
             }
             if let secondary = reading.secondary {
                 usage.week.fraction = secondary.percent / 100
                 usage.week.resetsAt = secondary.resetsAt
                 usage.week.label = Self.label(minutes: secondary.windowMinutes, fallback: "7d")
+                if let minutes = secondary.windowMinutes { usage.week.length = TimeInterval(minutes) * 60 }
             }
             usage.status = usage.session.fraction == nil ? .idle : .ok
             if usage.session.fraction == nil {

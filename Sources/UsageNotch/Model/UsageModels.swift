@@ -9,10 +9,19 @@ struct UsageWindow {
     var resetsAt: Date?
     /// Short human label, e.g. "5h" or "week".
     var label: String
+    /// How long the window lasts, so elapsed time can be drawn as an arc.
+    var length: TimeInterval?
     /// True when the fraction is inferred locally rather than reported by the vendor.
     var estimated: Bool
 
     var percent: Int? { fraction.map { Int(($0 * 100).rounded()) } }
+
+    /// How far through the window we are, 0 at the start and 1 at the reset.
+    func elapsedFraction(now: Date = Date()) -> Double? {
+        guard let resetsAt, let length, length > 0 else { return nil }
+        let remaining = resetsAt.timeIntervalSince(now)
+        return min(max(1 - remaining / length, 0), 1)
+    }
 }
 
 enum ProviderStatus {

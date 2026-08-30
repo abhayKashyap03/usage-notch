@@ -48,8 +48,8 @@ final class ClaudeCodeProvider: UsageProvider, @unchecked Sendable {
         var usage = ProviderUsage(
             id: id, name: "Claude Code", glyph: "CC",
             tint: Color(red: 0.85, green: 0.53, blue: 0.35),
-            session: UsageWindow(fraction: nil, resetsAt: nil, label: "5h", estimated: true),
-            week: UsageWindow(fraction: nil, resetsAt: nil, label: "7d", estimated: true),
+            session: UsageWindow(fraction: nil, resetsAt: nil, label: "5h", length: Self.blockDuration, estimated: true),
+            week: UsageWindow(fraction: nil, resetsAt: nil, label: "7d", length: 7 * 24 * 3600, estimated: true),
             tokens: 0, costUSD: nil, plan: nil, lastActivity: nil, status: .idle
         )
 
