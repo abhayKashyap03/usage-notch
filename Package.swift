@@ -8,6 +8,11 @@ let package = Package(
         .executableTarget(
             name: "UsageNotch",
             path: "Sources/UsageNotch"
+        ),
+        .testTarget(
+            name: "UsageNotchTests",
+            dependencies: ["UsageNotch"],
+            path: "Tests/UsageNotchTests"
         )
     ]
 )

@@ -20,10 +20,13 @@ final class UsageStore: ObservableObject {
     /// Sessions open right now. Refreshed far more often than usage: this is the part
     /// that has to feel live.
     @Published private(set) var sessions: [AgentSession] = []
+    /// Read-only local developer context for the workspaces behind those sessions.
+    @Published private(set) var workspaces: [WorkspaceState] = []
 
     let claude = ClaudeCodeProvider()
     let codex = CodexProvider()
     private let activity = AgentActivityProvider()
+    private let developerContext = DeveloperContextProvider()
 
     private let pool = DispatchQueue(label: "com.abhaykashyap.usagenotch.providers",
                                      qos: .utility, attributes: .concurrent)
@@ -31,6 +34,8 @@ final class UsageStore: ObservableObject {
     private var activityTimer: Timer?
     private var activityInterval: TimeInterval = 0
     private var activityBusy = false
+    private var workspaceBusy = false
+    private var lastWorkspaceRefresh = Date.distantPast
     /// Providers whose previous fetch never returned; they are not launched again.
     private var stalled: Set<String> = []
 
@@ -44,9 +49,10 @@ final class UsageStore: ObservableObject {
 
     /// Tail the live transcripts. Cheap enough to run every couple of seconds while an
     /// agent is actually working, and backs off when nothing is happening.
-    func refreshActivity() {
+    func refreshActivity(forceWorkspace: Bool = false) {
         guard Settings.shared.showAgents else {
             if !sessions.isEmpty { sessions = [] }
+            if !workspaces.isEmpty { workspaces = [] }
             scheduleActivityTimer(interval: 8)
             return
         }
@@ -59,7 +65,34 @@ final class UsageStore: ObservableObject {
                 guard let self else { return }
                 self.activityBusy = false
                 if found != self.sessions { self.sessions = found }
+                self.refreshWorkspaces(for: found, force: forceWorkspace)
                 self.scheduleActivityTimer(interval: found.anyWorking ? 2 : 6)
+            }
+        }
+    }
+
+    /// Git status is heavier than tailing a transcript, so it has its own cadence and
+    /// never overlaps with a previous check.
+    private func refreshWorkspaces(for sessions: [AgentSession], force: Bool = false) {
+        guard Settings.shared.showWorkspaceState else {
+            if !workspaces.isEmpty { workspaces = [] }
+            return
+        }
+        guard !sessions.isEmpty else {
+            if !workspaces.isEmpty { workspaces = [] }
+            return
+        }
+        guard !workspaceBusy else { return }
+        guard force || Date().timeIntervalSince(lastWorkspaceRefresh) >= 6 else { return }
+
+        workspaceBusy = true
+        lastWorkspaceRefresh = Date()
+        pool.async { [weak self, developerContext] in
+            let found = developerContext.workspaces(for: sessions)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.workspaceBusy = false
+                if found != self.workspaces { self.workspaces = found }
             }
         }
     }
@@ -92,6 +125,12 @@ final class UsageStore: ObservableObject {
         var providers: [ProviderUsage] = []
         for provider in active() { providers.append(provider.fetch(now: now)) }
         snapshot = UsageSnapshot(providers: providers, updatedAt: now)
+        if Settings.shared.showAgents {
+            sessions = activity.sessions(now: now)
+            if Settings.shared.showWorkspaceState {
+                workspaces = developerContext.workspaces(for: sessions, now: now)
+            }
+        }
     }
 
     /// Plausible stand-in readings for the README screenshots.
@@ -117,12 +156,20 @@ final class UsageStore: ObservableObject {
         codex.footnote = nil
         snapshot = UsageSnapshot(providers: [claude, codex], updatedAt: now)
         sessions = idle ? [] : [
-            AgentSession(id: "demo-1", kind: .claude, project: "usage-notch", branch: "main",
+            AgentSession(id: "demo-1", kind: .claude, project: "usage-notch",
+                         workspacePath: "/Projects/usage-notch", branch: "main",
                          detail: "Edit", startedAt: now.addingTimeInterval(-14 * 60),
                          lastActivity: now, isWorking: true),
-            AgentSession(id: "demo-2", kind: .codex, project: "api-gateway", branch: nil,
+            AgentSession(id: "demo-2", kind: .codex, project: "api-gateway",
+                         workspacePath: "/Projects/api-gateway", branch: nil,
                          detail: "waiting for you", startedAt: now.addingTimeInterval(-52 * 60),
                          lastActivity: now.addingTimeInterval(-140), isWorking: false),
+        ]
+        workspaces = idle ? [] : [
+            WorkspaceState(project: "usage-notch", rootPath: "/Projects/usage-notch",
+                           branch: "main", changedFiles: 3, ahead: 1, behind: 0, checkedAt: now),
+            WorkspaceState(project: "api-gateway", rootPath: "/Projects/api-gateway",
+                           branch: "fix/auth", changedFiles: 0, ahead: 0, behind: 2, checkedAt: now),
         ]
     }
 

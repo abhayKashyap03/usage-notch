@@ -1,9 +1,11 @@
 # Usage Notch
 
-An LLM usage meter and live agent monitor that clips onto the edge of your Mac's
+Developer cockpit for the edge of your Mac's screen: an LLM usage meter, live agent
+monitor, and active-workspace health check that clips onto the edge of your Mac's
 screen — or wraps around the notch itself, Dynamic Island style. It shows how much of
 your Claude Code and Codex rate-limit windows you have burned, what your open agent
-sessions are doing right now, expands into a full panel on hover, and shrinks to a
+sessions are doing right now, and whether their Git workspaces are clean, ahead, or
+behind. It expands into a full panel on hover, and shrinks to a
 sliver ("work mode") when you want it gone.
 
 ![island](docs/island-pill.png)
@@ -15,8 +17,9 @@ sliver ("work mode") when you want it gone.
 | resting | ![pill](docs/pill.png) | ![side pill](docs/side-pill.png) |
 | work mode | ![mini](docs/mini.png) | ![side mini](docs/side-mini.png) |
 
-Hovering any of them opens the same panel: your live agent sessions, then a 5-hour
-ring, weekly meter, tokens, estimated spend and reset countdown per provider.
+Hovering any of them opens the same panel: your live agent sessions, active workspace
+Git state, then a 5-hour ring, weekly meter, tokens, estimated spend and reset
+countdown per provider.
 
 ## Live agent sessions
 
@@ -42,6 +45,19 @@ quiet mid-turn is marked "stalled" and retired just as quickly. Resumed sessions
 a fresh transcript under the same project, so rows are de-duplicated per agent and
 project, keeping the busy one. The list is capped at four. Turn the whole thing off in
 *Sources ▸ Live agent sessions*.
+
+## Active workspace state
+
+Each live transcript also records the session's working directory. Usage Notch maps
+that directory to its Git root and runs a read-only local status check every few
+seconds. The cockpit shows the current branch, changed-file count, and upstream
+ahead/behind counts. Duplicate agent sessions in the same repository collapse into
+one workspace row.
+
+The check disables Git's optional locks, has a short deadline, and never fetches from
+the network. It reports the state already known by your local repository; upstream
+counts can therefore be stale until another tool runs `git fetch`. Turn it off in
+*Sources ▸ Workspace Git state*.
 
 ## Where it sits
 
@@ -173,7 +189,7 @@ UI/NotchState           mini / pill / expanded, hover debounce, motion curves
 UI/Interaction          hover tracking and rect reporting for AppKit hit routing
 UI/NotchRootView        SwiftUI tree for the three states
 Model/UsageStore        provider fan-out, deadlines, published snapshot
-Providers/*             Claude Code, Codex, agent activity, account, cache, pricing
+Providers/*             usage, agent activity, Git workspace context, account, cache
 ```
 
 Two decisions are load-bearing:

@@ -108,6 +108,11 @@ final class ClaudeCodeProvider: UsageProvider, @unchecked Sendable {
         usage.week.resetsAt = nil
 
         // Real plan utilisation wins over the estimate when the user opts in.
+        if Settings.shared.useAnthropicAccount, account.utilisation() == nil {
+            // Silently falling back is how a ring ends up reading 100% when the real
+            // figure is 72%: the estimate is measured against your own record block.
+            usage.footnote = account.lastFailure ?? "account limits unavailable"
+        }
         if Settings.shared.useAnthropicAccount, let real = account.utilisation() {
             if let five = real.session {
                 usage.session.fraction = five.fraction

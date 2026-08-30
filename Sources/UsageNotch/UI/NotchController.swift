@@ -141,6 +141,15 @@ final class NotchController: NSObject, NSMenuDelegate {
             }
             .store(in: &bag)
 
+        store.$workspaces
+            .map { rows in rows.map { "\($0.id):\($0.branch):\($0.changedFiles):\($0.ahead):\($0.behind)" }.joined(separator: "|") }
+            .removeDuplicates()
+            .sink { [weak self] summary in
+                self?.debugLog("workspaces=\(summary)")
+                self?.positionPanel()
+            }
+            .store(in: &bag)
+
         NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
             .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.rebuildLayout() }
@@ -434,6 +443,7 @@ final class NotchController: NSObject, NSMenuDelegate {
         debugLog("refresh(spin: \(spin))")
         if spin { state.kickRefreshSpin() }
         store.refresh()
+        store.refreshActivity(forceWorkspace: true)
     }
 
     private func toggleMiniMode() {
@@ -491,6 +501,12 @@ final class NotchController: NSObject, NSMenuDelegate {
     @objc private func menuToggleAgents() {
         Settings.shared.showAgents.toggle()
         store.refreshActivity()
+        positionPanel()
+    }
+
+    @objc private func menuToggleWorkspaceState() {
+        Settings.shared.showWorkspaceState.toggle()
+        store.refreshActivity(forceWorkspace: true)
         positionPanel()
     }
 
@@ -646,6 +662,10 @@ final class NotchController: NSObject, NSMenuDelegate {
         let agents = item("Live agent sessions", #selector(menuToggleAgents))
         agents.state = s.showAgents ? .on : .off
         sources.addItem(agents)
+        let workspaces = item("Workspace Git state", #selector(menuToggleWorkspaceState))
+        workspaces.state = s.showWorkspaceState ? .on : .off
+        workspaces.isEnabled = s.showAgents
+        sources.addItem(workspaces)
         sources.addItem(.separator())
         for metric in ClaudeMetric.allCases {
             let mi = item("Claude ring: \(metric.title)", #selector(menuSetClaudeMetric(_:)))

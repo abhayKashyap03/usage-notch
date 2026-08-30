@@ -22,6 +22,9 @@ struct AgentSession: Identifiable, Equatable {
     var id: String              // transcript path — stable for the life of the session
     var kind: AgentKind
     var project: String
+    /// Working directory recorded by the CLI. This is the bridge from an agent turn
+    /// to local developer context such as Git state.
+    var workspacePath: String? = nil
     var branch: String?
     /// What it is doing: a tool name, "thinking", "responding", or "done".
     var detail: String
@@ -34,7 +37,8 @@ struct AgentSession: Identifiable, Equatable {
 
     static func == (a: AgentSession, b: AgentSession) -> Bool {
         a.id == b.id && a.detail == b.detail && a.isWorking == b.isWorking
-            && a.lastActivity == b.lastActivity
+            && a.lastActivity == b.lastActivity && a.project == b.project
+            && a.workspacePath == b.workspacePath && a.branch == b.branch
     }
 }
 

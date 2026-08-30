@@ -16,6 +16,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 // `UsageNotch --dump` prints what the providers see and exits. Handy for checking
 // the parsers without staring at the pill.
+// `UsageNotch --account` runs the opt-in Anthropic usage check and reports what came
+// back, which is otherwise invisible behind a background queue.
+if CommandLine.arguments.contains("--account") {
+    let provider = AnthropicAccountProvider()
+    let result = provider.probeBlocking()
+    if let result {
+        print("5h: \(result.session?.percent.map(String.init) ?? "–")%   " +
+              "7d: \(result.week?.percent.map(String.init) ?? "–")%   plan: \(result.plan ?? "unknown")")
+    } else {
+        print("no usable answer: \(provider.lastFailure ?? "unknown")")
+    }
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--dump") {
     let now = Date()
     for usage in [ClaudeCodeProvider().fetch(now: now), CodexProvider().fetch(now: now)] {
@@ -26,10 +40,19 @@ if CommandLine.arguments.contains("--dump") {
         print("  tokens=\(Fmt.tokens(usage.tokens)) cost=\(usage.costUSD.map(Fmt.money) ?? "n/a") plan=\(usage.plan ?? "n/a") estimated=\(usage.session.estimated)")
         print("  note=\(usage.footnote ?? "-")")
     }
-    for session in AgentActivityProvider().sessions() {
+    let liveSessions = AgentActivityProvider().sessions()
+    for session in liveSessions {
         let age = Int(Date().timeIntervalSince(session.lastActivity))
         print("\(session.kind.rawValue) session: \(session.project) — \(session.detail) " +
               "(\(session.isWorking ? "working" : "idle"), up \(Fmt.elapsed(session.elapsed)), last event \(age)s ago)")
+    }
+    for workspace in DeveloperContextProvider().workspaces(for: liveSessions, now: now) {
+        let divergence = [workspace.ahead > 0 ? "ahead \(workspace.ahead)" : nil,
+                          workspace.behind > 0 ? "behind \(workspace.behind)" : nil]
+            .compactMap { $0 }.joined(separator: ", ")
+        print("workspace: \(workspace.project) [\(workspace.branch)] — " +
+              "\(workspace.isClean ? "clean" : "\(workspace.changedFiles) changed")" +
+              (divergence.isEmpty ? "" : " (\(divergence))"))
     }
     exit(0)
 }

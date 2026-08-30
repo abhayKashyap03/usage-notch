@@ -19,8 +19,14 @@ final class AgentActivityProvider: @unchecked Sendable {
     private static let tailBytes = 96 * 1024
     private static let maxSessions = 4
 
-    /// Session start and project name never change, so they are read once per file.
-    private var headCache: [String: (started: Date, project: String)] = [:]
+    private struct SessionHead {
+        var started: Date
+        var project: String
+        var workspacePath: String?
+    }
+
+    /// Session start and working directory never change, so they are read once per file.
+    private var headCache: [String: SessionHead] = [:]
     private let lock = NSLock()
 
     func sessions(now: Date = Date()) -> [AgentSession] {
@@ -40,7 +46,7 @@ final class AgentActivityProvider: @unchecked Sendable {
         // one row per project+agent: the newest, and prefer one that is actually busy.
         var byKey: [String: AgentSession] = [:]
         for session in out.ranked {
-            let key = "\(session.kind.rawValue):\(session.project)"
+            let key = "\(session.kind.rawValue):\(session.workspacePath ?? session.project)"
             if let existing = byKey[key],
                existing.isWorking || existing.lastActivity >= session.lastActivity { continue }
             byKey[key] = session
@@ -105,18 +111,20 @@ final class AgentActivityProvider: @unchecked Sendable {
         return AgentSession(
             id: path, kind: .claude,
             project: head.project,
+            workspacePath: head.workspacePath,
             branch: branch == "HEAD" ? nil : branch,
             detail: state.detail,
             startedAt: head.started, lastActivity: stamp, isWorking: state.working
         )
     }
 
-    private func claudeHead(path: String, fallbackProject: String?, fallbackDate: Date) -> (started: Date, project: String) {
+    private func claudeHead(path: String, fallbackProject: String?, fallbackDate: Date) -> SessionHead {
         lock.lock()
         if let cached = headCache[path] { lock.unlock(); return cached }
         lock.unlock()
 
         var started = fallbackDate
+        var workspacePath = fallbackProject
         var project = (fallbackProject as NSString?)?.lastPathComponent
             ?? (path as NSString).deletingLastPathComponent.components(separatedBy: "-").last
             ?? "session"
@@ -134,13 +142,16 @@ final class AgentActivityProvider: @unchecked Sendable {
                         started = stamp
                         foundStart = true
                     }
-                    if let cwd = obj["cwd"] as? String { project = (cwd as NSString).lastPathComponent }
+                    if let cwd = obj["cwd"] as? String {
+                        workspacePath = cwd
+                        project = (cwd as NSString).lastPathComponent
+                    }
                     if foundStart && project != "session" { break }
                 }
             }
         }
 
-        let value = (started, project)
+        let value = SessionHead(started: started, project: project, workspacePath: workspacePath)
         lock.lock(); headCache[path] = value; lock.unlock()
         return value
     }
@@ -191,40 +202,40 @@ final class AgentActivityProvider: @unchecked Sendable {
 
         return AgentSession(
             id: path, kind: .codex,
-            project: head.project, branch: nil,
+            project: head.project, workspacePath: head.workspacePath, branch: nil,
             detail: state.detail,
             startedAt: head.started, lastActivity: stamp, isWorking: state.working
         )
     }
 
-    private func codexHead(path: String, fallbackDate: Date) -> (started: Date, project: String) {
+    private func codexHead(path: String, fallbackDate: Date) -> SessionHead {
         lock.lock()
         if let cached = headCache[path] { lock.unlock(); return cached }
         lock.unlock()
 
         var started = fallbackDate
         var project = "codex"
+        var workspacePath: String?
         if let handle = FileHandle(forReadingAtPath: path) {
             defer { try? handle.close() }
             if let head = try? handle.read(upToCount: 64 * 1024),
                let text = String(data: head, encoding: .utf8) {
-                // The rollout header carries the working directory in its world state.
-                if let range = text.range(of: "\"cwd\":\"") {
-                    let rest = text[range.upperBound...]
-                    if let end = rest.firstIndex(of: "\"") {
-                        project = (String(rest[..<end]) as NSString).lastPathComponent
-                    }
-                }
                 for line in text.split(separator: "\n") {
-                    guard let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                          let stamp = (obj["timestamp"] as? String).flatMap(ISO8601.parse) else { continue }
-                    started = stamp
-                    break
+                    guard let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+                    else { continue }
+                    if workspacePath == nil, let cwd = Self.findString(named: "cwd", in: obj) {
+                        workspacePath = cwd
+                        project = (cwd as NSString).lastPathComponent
+                    }
+                    if let stamp = (obj["timestamp"] as? String).flatMap(ISO8601.parse) {
+                        started = stamp
+                    }
+                    if workspacePath != nil { break }
                 }
             }
         }
 
-        let value = (started, project)
+        let value = SessionHead(started: started, project: project, workspacePath: workspacePath)
         lock.lock(); headCache[path] = value; lock.unlock()
         return value
     }
@@ -268,6 +279,22 @@ final class AgentActivityProvider: @unchecked Sendable {
             return meaningful.first.map { ($0 as NSString).lastPathComponent }
         }
         if let text = raw as? String { return text.components(separatedBy: " ").first }
+        return nil
+    }
+
+    /// Session headers have changed shape across Codex releases. Search the small
+    /// header object rather than coupling the provider to one nesting path.
+    private static func findString(named key: String, in value: Any) -> String? {
+        if let object = value as? [String: Any] {
+            if let direct = object[key] as? String { return direct }
+            for child in object.values {
+                if let found = findString(named: key, in: child) { return found }
+            }
+        } else if let array = value as? [Any] {
+            for child in array {
+                if let found = findString(named: key, in: child) { return found }
+            }
+        }
         return nil
     }
 }

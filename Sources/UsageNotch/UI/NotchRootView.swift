@@ -212,7 +212,7 @@ private struct PillContent: View {
     }
 }
 
-/// Opened panel: live sessions on top, then the usage rings.
+/// Opened panel: live sessions, their local workspaces, then the usage rings.
 private struct ExpandedContent: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var state: NotchState
@@ -279,6 +279,17 @@ private struct ExpandedContent: View {
                     .padding(.vertical, 1)
             }
 
+            if !store.workspaces.isEmpty {
+                sectionTitle("WORKSPACES")
+                ForEach(store.workspaces) { workspace in
+                    WorkspaceRow(workspace: workspace)
+                }
+                Rectangle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(height: 1)
+                    .padding(.vertical, 1)
+            }
+
             if store.snapshot.visible.isEmpty {
                 Text(store.snapshot.providers.first?.footnote ?? "Looking for local sessions…")
                     .font(.system(size: 11))
@@ -312,7 +323,7 @@ private struct ExpandedContent: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Text("LLM USAGE")
+            Text("DEV COCKPIT")
                 .font(.system(size: 9.5, weight: .bold, design: .rounded))
                 .tracking(1.1)
                 .foregroundStyle(.white.opacity(0.55))

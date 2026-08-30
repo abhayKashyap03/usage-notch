@@ -59,6 +59,7 @@ final class Settings {
         static let sideOffset = "sideOffset"
         static let topOffset = "topOffset"
         static let showAgents = "showAgents"
+        static let showWorkspaceState = "showWorkspaceState"
     }
 
     private init() {
@@ -77,6 +78,7 @@ final class Settings {
             K.sideOffset: 0.0,
             K.topOffset: 0.0,
             K.showAgents: true,
+            K.showWorkspaceState: true,
         ])
     }
 
@@ -117,6 +119,12 @@ final class Settings {
     var showAgents: Bool {
         get { d.bool(forKey: K.showAgents) }
         set { d.set(newValue, forKey: K.showAgents) }
+    }
+
+    /// Show read-only Git context for workspaces discovered from live sessions.
+    var showWorkspaceState: Bool {
+        get { d.bool(forKey: K.showWorkspaceState) }
+        set { d.set(newValue, forKey: K.showWorkspaceState) }
     }
 
     var showClaude: Bool {

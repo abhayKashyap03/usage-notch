@@ -98,6 +98,61 @@ struct SessionRow: View {
     }
 }
 
+/// One active repository: branch divergence and whether the working tree is clean.
+struct WorkspaceRow: View {
+    var workspace: WorkspaceState
+
+    private var statusTint: Color {
+        workspace.isClean
+            ? Color(red: 0.36, green: 0.85, blue: 0.60)
+            : Color(red: 0.98, green: 0.75, blue: 0.32)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.38))
+                .frame(width: 12)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(workspace.project)
+                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .lineLimit(1)
+                Text(workspace.branch)
+                    .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.32))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 4)
+
+            if workspace.ahead > 0 {
+                flow("↑", workspace.ahead)
+            }
+            if workspace.behind > 0 {
+                flow("↓", workspace.behind)
+            }
+
+            HStack(spacing: 4) {
+                Circle().fill(statusTint).frame(width: 5, height: 5)
+                Text(workspace.isClean ? "clean" : "\(workspace.changedFiles) changed")
+                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .foregroundStyle(statusTint.opacity(0.9))
+            }
+        }
+        .frame(height: 24)
+        .help(workspace.rootPath)
+    }
+
+    private func flow(_ arrow: String, _ count: Int) -> some View {
+        Text("\(arrow)\(count)")
+            .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.38))
+    }
+}
+
 /// Compact usage readout: one dot and percentage per provider.
 struct UsageStrip: View {
     var snapshot: UsageSnapshot

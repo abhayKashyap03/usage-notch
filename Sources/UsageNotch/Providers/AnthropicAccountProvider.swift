@@ -29,6 +29,12 @@ final class AnthropicAccountProvider: @unchecked Sendable {
     private var cached: Result?
     private var lastAttempt: Date = .distantPast
     private var inFlight = false
+    /// True once a read has actually worked. Until then we do not retry in the
+    /// background: the keychain can block on an authorisation prompt, and an
+    /// accessory app cannot reliably show one.
+    private var everSucceeded = false
+    /// Set when a read gave up, so the panel can say the estimate is a fallback.
+    private(set) var lastFailure: String?
 
     /// Fired on the main queue when a background load lands, so the UI can pick the
     /// real numbers up immediately instead of waiting for the next refresh tick.
@@ -38,16 +44,17 @@ final class AnthropicAccountProvider: @unchecked Sendable {
     func utilisation(now: Date = Date()) -> Result? {
         lock.lock()
         let result = cached
-        let due = !inFlight && now.timeIntervalSince(lastAttempt) > Self.refreshInterval
+        // Only poll on a schedule once we know the read works unattended.
+        let due = !inFlight && everSucceeded && now.timeIntervalSince(lastAttempt) > Self.refreshInterval
         if due { inFlight = true }
         lock.unlock()
 
         if due {
             queue.async { [weak self] in
                 guard let self else { return }
-                let fresh = self.load()
+                let fresh = self.loadWithTimeout()
                 self.lock.lock()
-                if fresh != nil { self.cached = fresh }
+                if fresh != nil { self.cached = fresh; self.everSucceeded = true }
                 self.lastAttempt = Date()
                 self.inFlight = false
                 self.lock.unlock()
@@ -64,13 +71,24 @@ final class AnthropicAccountProvider: @unchecked Sendable {
         NSApp.activate(ignoringOtherApps: true)
         queue.async { [weak self] in
             guard let self else { return }
-            let result = self.load()
+            let result = self.loadWithTimeout(seconds: 30)   // a prompt needs answering
             self.lock.lock()
             self.cached = result
+            if result != nil { self.everSucceeded = true }
             self.lastAttempt = Date()
             self.lock.unlock()
             DispatchQueue.main.async { completion(result != nil) }
         }
+    }
+
+    /// Diagnostic path: read once, right now, and say what happened.
+    func probeBlocking(seconds: TimeInterval = 12) -> Result? {
+        let result = loadWithTimeout(seconds: seconds)
+        lock.lock()
+        if result != nil { cached = result; everSucceeded = true }
+        lastAttempt = Date()
+        lock.unlock()
+        return result
     }
 
     func reset() {
@@ -80,8 +98,29 @@ final class AnthropicAccountProvider: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Reads with a deadline. `SecItemCopyMatching` blocks indefinitely while an
+    /// authorisation prompt is unanswered, which would otherwise wedge the refresh.
+    private func loadWithTimeout(seconds: TimeInterval = 5) -> Result? {
+        let done = DispatchSemaphore(value: 0)
+        var result: Result?
+        DispatchQueue.global(qos: .utility).async {
+            result = self.load()
+            done.signal()
+        }
+        if done.wait(timeout: .now() + seconds) == .timedOut {
+            lock.lock(); lastFailure = "keychain access is waiting for approval"; lock.unlock()
+            usageDebug("account: timed out (likely an unanswered keychain prompt)")
+            return nil
+        }
+        lock.lock(); lastFailure = result == nil ? "Anthropic returned no usable data" : nil; lock.unlock()
+        return result
+    }
+
     private func load() -> Result? {
-        guard let token = keychainToken() else { return nil }
+        guard let token = keychainToken() else {
+            usageDebug("account: no usable token in the keychain")
+            return nil
+        }
         var request = URLRequest(url: Self.endpoint)
         request.timeoutInterval = 6
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -90,9 +129,13 @@ final class AnthropicAccountProvider: @unchecked Sendable {
 
         var payload: Data?
         let done = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: request) { data, response, _ in
-            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if (200..<300).contains(status) {
                 payload = data
+            } else {
+                // Keys and status only: never the token, never the body verbatim.
+                usageDebug("account: HTTP \(status) \(error.map { "error: \($0.localizedDescription)" } ?? "")")
             }
             done.signal()
         }.resume()
@@ -101,7 +144,9 @@ final class AnthropicAccountProvider: @unchecked Sendable {
         guard let payload,
               let root = try? JSONSerialization.jsonObject(with: payload) as? [String: Any]
         else { return nil }
-        return Self.decode(root)
+        let decoded = Self.decode(root)
+        if decoded == nil { usageDebug("account: unrecognised response shape, keys=\(root.keys.sorted())") }
+        return decoded
     }
 
     /// The response shape has moved around across Claude Code releases, so match on
@@ -139,24 +184,73 @@ final class AnthropicAccountProvider: @unchecked Sendable {
     }
 
     /// Reads the Claude Code credential blob and keeps only the access token.
+    ///
+    /// There is rarely just one: Claude Code stores a credential per installation
+    /// (`Claude Code-credentials`, plus suffixed variants), and the plain-named one is
+    /// often the stalest. Every matching item is considered and the freshest unexpired
+    /// token wins.
     private func keychainToken() -> String? {
-        let query: [String: Any] = [
+        // Two steps on purpose: asking for every item *and* its data at once is
+        // rejected with errSecParam (-50), so list the services first, then fetch
+        // each blob individually.
+        let listQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
         ]
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-
-        if let oauth = json["claudeAiOauth"] as? [String: Any] {
-            if let expires = oauth["expiresAt"] as? Double,
-               Date(timeIntervalSince1970: expires / 1000) < Date() { return nil }
-            return oauth["accessToken"] as? String
+        var items: CFTypeRef?
+        let status = SecItemCopyMatching(listQuery as CFDictionary, &items)
+        guard status == errSecSuccess, let entries = items as? [[String: Any]] else {
+            usageDebug("account: keychain listing failed with OSStatus \(status)")
+            return nil
         }
-        return json["accessToken"] as? String
+
+        // Exact name first, then the per-installation variants. Reading an item the
+        // app has not been granted raises a keychain prompt, so stop at the first
+        // valid token rather than walking the whole list.
+        let services = Set(entries.compactMap { $0[kSecAttrService as String] as? String })
+            .filter { $0.hasPrefix(Self.service) }
+            .sorted { lhs, _ in lhs == Self.service }
+        guard !services.isEmpty else {
+            usageDebug("account: no Claude Code credentials found")
+            return nil
+        }
+
+        var best: (token: String, expiry: Date)?
+        var sawExpired = false
+        for service in services {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecReturnData as String: true,
+                kSecMatchLimit as String: kSecMatchLimitOne,
+            ]
+            var item: CFTypeRef?
+            guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+                  let data = item as? Data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { continue }
+
+            let oauth = (json["claudeAiOauth"] as? [String: Any]) ?? json
+            guard let token = oauth["accessToken"] as? String else { continue }
+            let expiry = (oauth["expiresAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
+                ?? Date.distantFuture
+            guard expiry > Date() else { sawExpired = true; continue }
+            if best == nil || expiry > best!.expiry { best = (token, expiry) }
+            if best != nil { break }
+        }
+
+        if best == nil {
+            usageDebug(sawExpired
+                ? "account: every stored token has expired; Claude Code refreshes them on next use"
+                : "account: found credentials but no usable token")
+            lock.lock()
+            lastFailure = sawExpired ? "Claude Code token expired" : "no usable Claude credentials"
+            lock.unlock()
+        } else {
+            usageDebug("account: using token from \(services.count) candidate credential(s)")
+        }
+        return best?.token
     }
+
 }
