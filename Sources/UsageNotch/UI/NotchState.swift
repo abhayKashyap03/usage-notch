@@ -23,6 +23,8 @@ final class NotchState: ObservableObject {
     @Published var mode: NotchMode = .pill
     @Published var placement: Placement = .current
     @Published var isHovering = false
+    /// Height the open panel's content measured, once SwiftUI has laid it out.
+    @Published var panelBodyHeight: CGFloat?
     /// Accumulates 360° per refresh so the icon keeps spinning in one direction.
     @Published var spin: Double = 0
 

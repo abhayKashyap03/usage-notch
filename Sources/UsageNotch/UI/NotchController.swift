@@ -210,7 +210,11 @@ final class NotchController: NSObject, NSMenuDelegate {
             state: state,
             onRefresh: { [weak self] in self?.refresh(spin: true) },
             onToggleMini: { [weak self] in self?.toggleMiniMode() },
-            onHitTargets: { [weak self] targets in self?.hosting?.hitTargets = targets }
+            onHitTargets: { [weak self] targets in self?.hosting?.hitTargets = targets },
+            onPanelHeight: { [weak self] height in
+                self?.debugLog("panel measured \(height)")
+                self?.positionPanel()
+            }
         )
     }
 
@@ -219,7 +223,8 @@ final class NotchController: NSObject, NSMenuDelegate {
                providers: max(store.snapshot.visible.count, providersFloor),
                sessions: store.sessions.count,
                leadProject: store.sessions.first?.project ?? "",
-               leadDetail: store.sessions.first?.detail ?? "")
+               leadDetail: store.sessions.first?.detail ?? "",
+               measuredBody: state.panelBodyHeight)
     }
 
     private func currentPlacement() -> Placement {

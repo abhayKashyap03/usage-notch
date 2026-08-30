@@ -30,12 +30,13 @@ enum RenderHarness {
             state.placement = Placement(edge: edge, anchor: .rightOfNotch, notch: notch)
             let root = NotchRootView(store: store, state: state,
                                      onRefresh: {}, onToggleMini: {},
-                                     onHitTargets: { _ in })
+                                     onHitTargets: { _ in }, onPanelHeight: { _ in })
             let layout = Layout(placement: state.placement,
                                 providers: max(store.snapshot.visible.count, 1),
                                 sessions: store.sessions.count,
                                 leadProject: store.sessions.first?.project ?? "",
-                                leadDetail: store.sessions.first?.detail ?? "")
+                                leadDetail: store.sessions.first?.detail ?? "",
+                                measuredBody: state.panelBodyHeight)
             let size = layout.size(for: mode)
             snapshot(root, size: size, to: outputDirectory + "/\(name).png")
             print("rendered \(name).png  \(Int(size.width))x\(Int(size.height))")
@@ -65,6 +66,14 @@ enum RenderHarness {
         hosting.layoutSubtreeIfNeeded()
         spin(until: Date().addingTimeInterval(0.4)) { false }
 
+        // The panel sizes itself now, so trust its fitting size over the estimate.
+        let fitting = hosting.fittingSize
+        if fitting.height > hosting.frame.height + 0.5 {
+            hosting.frame = CGRect(origin: .zero, size: CGSize(width: hosting.frame.width, height: ceil(fitting.height)))
+            window.setContentSize(hosting.frame.size)
+            hosting.layoutSubtreeIfNeeded()
+            spin(until: Date().addingTimeInterval(0.25)) { false }
+        }
         guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return }
         hosting.cacheDisplay(in: hosting.bounds, to: rep)
         if let data = rep.representation(using: .png, properties: [:]) {

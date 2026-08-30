@@ -23,6 +23,10 @@ struct Layout: Equatable {
     /// of guessing a fixed width and leaving the content jammed against the corners.
     var leadProject: String = ""
     var leadDetail: String = ""
+    /// Height the panel's content actually laid out to. Row-count arithmetic is only
+    /// ever an estimate — it drifts the moment a row wraps or a section appears — so
+    /// the real measurement wins once SwiftUI reports it.
+    var measuredBody: CGFloat?
 
     /// Width of a string in the rounded system font, matching what SwiftUI renders.
     private static func width(_ text: String, _ size: CGFloat, _ weight: NSFont.Weight) -> CGFloat {
@@ -63,7 +67,9 @@ struct Layout: Equatable {
     private var sessionRows: CGFloat { sessions == 0 ? 0 : CGFloat(sessions) * 26 + 8 }
 
     /// Body of the open panel, excluding any notch band above it.
-    private var panelBody: CGFloat { 44 + providerRows + sessionRows + 26 }
+    private var panelBody: CGFloat {
+        measuredBody ?? (44 + providerRows + sessionRows + 26)
+    }
 
     func size(for mode: NotchMode) -> CGSize {
         switch placement.edge {

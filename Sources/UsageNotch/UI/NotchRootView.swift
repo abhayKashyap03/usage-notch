@@ -7,6 +7,7 @@ struct NotchRootView: View {
     var onRefresh: () -> Void
     var onToggleMini: () -> Void
     var onHitTargets: ([HitTarget]) -> Void
+    var onPanelHeight: (CGFloat) -> Void
 
     private var placement: Placement { state.placement }
     private var alignment: Alignment { placement.alignment }
@@ -18,7 +19,8 @@ struct NotchRootView: View {
                providers: max(store.snapshot.visible.count, 1),
                sessions: sessions.count,
                leadProject: sessions.first?.project ?? "",
-               leadDetail: sessions.first?.detail ?? "")
+               leadDetail: sessions.first?.detail ?? "",
+               measuredBody: state.panelBodyHeight)
     }
 
     private var currentSize: CGSize { layout.size(for: state.mode) }
@@ -41,8 +43,8 @@ struct NotchRootView: View {
                   visible: state.mode == .mini)
             layer(PillContent(snapshot: store.snapshot, sessions: sessions, tone: tone, layout: layout),
                   visible: state.mode == .pill)
-            layer(ExpandedContent(store: store, state: state, layout: layout,
-                                  tone: tone, onHitTargets: onHitTargets),
+            layer(ExpandedContent(store: store, state: state, layout: layout, tone: tone,
+                                  onHitTargets: onHitTargets, onHeight: reportHeight),
                   visible: state.mode == .expanded)
         }
         .frame(width: currentSize.width, height: currentSize.height, alignment: alignment)
@@ -57,6 +59,15 @@ struct NotchRootView: View {
         .animation(Anim.morph, value: currentSize)
         .animation(Anim.morph, value: radius)
         .animation(Anim.morph, value: placement)
+    }
+
+    /// The panel measures itself; the shell, the window and the hit region all follow
+    /// that number rather than a separate guess.
+    private func reportHeight(_ height: CGFloat) {
+        let rounded = ceil(height)
+        guard abs((state.panelBodyHeight ?? 0) - rounded) > 0.5 else { return }
+        state.panelBodyHeight = rounded
+        onPanelHeight(rounded)
     }
 
     /// Hidden states stay in the tree at zero opacity — cheap, and it keeps the
@@ -199,6 +210,7 @@ private struct ExpandedContent: View {
     var layout: Layout
     var tone: UsageTone
     var onHitTargets: ([HitTarget]) -> Void
+    var onHeight: (CGFloat) -> Void
 
     var body: some View {
         let size = layout.size(for: .expanded)
@@ -209,9 +221,13 @@ private struct ExpandedContent: View {
                 islandBand
                     .frame(height: layout.placement.notch.height)
             }
+            // No fixed height: the content lays out naturally and reports what it
+            // needed, which is what everything else is then sized from.
             body(width: size.width)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(RectReader { onHeight($0.height) })
         }
-        .frame(width: size.width, height: size.height, alignment: .top)
+        .frame(width: size.width, alignment: .top)
     }
 
     private var islandBand: some View {
@@ -270,7 +286,6 @@ private struct ExpandedContent: View {
                     ProviderRow(provider: provider)
                 }
             }
-            Spacer(minLength: 0)
             footer
         }
         .padding(.horizontal, Style.panelInset)
