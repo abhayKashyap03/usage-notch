@@ -60,6 +60,7 @@ final class Settings {
         static let topOffset = "topOffset"
         static let showAgents = "showAgents"
         static let lastBlockValue = "lastBlockValue"
+        static let claudeWindowAnchor = "claudeWindowAnchor"
         static let showWorkspaceState = "showWorkspaceState"
     }
 
@@ -176,6 +177,15 @@ final class Settings {
     var lastBlockValue: Double {
         get { d.double(forKey: K.lastBlockValue) }
         set { d.set(newValue, forKey: K.lastBlockValue) }
+    }
+
+    /// A reset time the user told us, which the 5-hour window then chains from.
+    var claudeWindowAnchor: Date? {
+        get {
+            let value = d.double(forKey: K.claudeWindowAnchor)
+            return value > 0 ? Date(timeIntervalSince1970: value) : nil
+        }
+        set { d.set(newValue?.timeIntervalSince1970 ?? 0, forKey: K.claudeWindowAnchor) }
     }
 
     var refreshSeconds: Double {

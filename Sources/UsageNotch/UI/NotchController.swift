@@ -520,35 +520,53 @@ final class NotchController: NSObject, NSMenuDelegate {
     /// real percentage off Claude and hand it to us once: the ceiling follows from
     /// that and the value of the block we are currently measuring.
     @objc private func menuCalibrate() {
-        let blockValue = Settings.shared.lastBlockValue
-        guard blockValue > 0 else {
-            NSSound.beep()
-            return
-        }
         NSApp.activate(ignoringOtherApps: true)
 
         let alert = NSAlert()
-        alert.messageText = "Calibrate the 5-hour ring"
+        alert.messageText = "Calibrate the 5-hour window"
         alert.informativeText =
-            "Open Claude and read the percentage it shows for the current 5-hour window, "
-            + "then type it here. Usage Notch will work out your limit from it and the "
-            + "block it is measuring right now."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
-        field.placeholderString = "78"
-        alert.accessoryView = field
+            "Open Claude, read the current 5-hour usage percentage and how long until it "
+            + "resets, and put both here. The percentage sets the ceiling; the reset time "
+            + "pins the window, which then chains forward every five hours.\n\n"
+            + "Leave a field blank to leave that half alone."
+
+        let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 52))
+        stack.orientation = .vertical
+        stack.spacing = 6
+        let percentField = NSTextField(); percentField.placeholderString = "usage %, e.g. 78"
+        let resetField = NSTextField(); resetField.placeholderString = "minutes until reset, e.g. 20"
+        stack.addArrangedSubview(percentField)
+        stack.addArrangedSubview(resetField)
+        percentField.widthAnchor.constraint(equalToConstant: 240).isActive = true
+        resetField.widthAnchor.constraint(equalToConstant: 240).isActive = true
+        alert.accessoryView = stack
+
         alert.addButton(withTitle: "Set")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        let entered = Double(field.stringValue.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "%", with: ""))
-        guard let entered, entered > 1, entered <= 100 else { NSSound.beep(); return }
-        Settings.shared.claudeSessionLimit = blockValue / (entered / 100)
-        debugLog("calibrated: block \(blockValue) is \(entered)% -> limit \(Settings.shared.claudeSessionLimit)")
+        func number(_ field: NSTextField) -> Double? {
+            Double(field.stringValue.trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: "%", with: ""))
+        }
+
+        if let percent = number(percentField), percent > 1, percent <= 100 {
+            let blockValue = Settings.shared.lastBlockValue
+            if blockValue > 0 {
+                Settings.shared.claudeSessionLimit = blockValue / (percent / 100)
+                debugLog("calibrated ceiling: \(blockValue) is \(percent)%")
+            }
+        }
+        if let minutes = number(resetField), minutes > 0, minutes <= 300 {
+            Settings.shared.claudeWindowAnchor = Date().addingTimeInterval(minutes * 60)
+            debugLog("calibrated window end: in \(minutes)m")
+        }
         refresh(spin: true)
     }
 
     @objc private func menuClearCalibration() {
         Settings.shared.claudeSessionLimit = 0
+        Settings.shared.claudeWindowAnchor = nil
         refresh(spin: false)
     }
 
@@ -711,7 +729,7 @@ final class NotchController: NSObject, NSMenuDelegate {
         }
         sources.addItem(.separator())
         sources.addItem(item("Calibrate 5-hour limit…", #selector(menuCalibrate)))
-        if s.claudeSessionLimit > 0 {
+        if s.claudeSessionLimit > 0 || s.claudeWindowAnchor != nil {
             sources.addItem(item("Clear calibration", #selector(menuClearCalibration)))
         }
         sources.addItem(.separator())

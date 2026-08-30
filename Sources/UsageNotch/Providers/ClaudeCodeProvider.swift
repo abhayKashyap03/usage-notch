@@ -69,9 +69,20 @@ final class ClaudeCodeProvider: UsageProvider, @unchecked Sendable {
         let metric = Settings.shared.claudeMetric
         func value(_ b: Block) -> Double { metric == .cost ? b.cost : Double(b.tokens) }
 
-        let active = blocks.last.flatMap { b -> Block? in
+        var active = blocks.last.flatMap { b -> Block? in
             let live = now < b.end && now.timeIntervalSince(b.lastActivity) < Self.blockDuration
             return live ? b : nil
+        }
+
+        // A calibrated window replaces the reconstructed one outright: the totals have
+        // to cover the same span as the countdown, or the ring and the clock disagree.
+        if let end = Self.calibratedWindowEnd(now: now) {
+            let start = end.addingTimeInterval(-Self.blockDuration)
+            let inWindow = entries.filter { $0.timestamp >= start && $0.timestamp <= end }
+            var window = Block(start: start, end: end, lastActivity: inWindow.last?.timestamp ?? start)
+            window.tokens = inWindow.reduce(0) { $0 + $1.total }
+            window.cost = inWindow.reduce(0.0) { $0 + $1.cost }
+            active = window
         }
 
         // Auto ceilings: the heaviest block, and the heaviest rolling week, ever seen.
@@ -92,11 +103,15 @@ final class ClaudeCodeProvider: UsageProvider, @unchecked Sendable {
         // ceiling from a percentage Claude itself showed them.
         if let active { Settings.shared.lastBlockValue = value(active) }
 
+        // A window the user calibrated beats anything reconstructed from transcripts,
+        // which cannot see Claude usage outside Claude Code at all.
+        let calibratedEnd = Self.calibratedWindowEnd(now: now)
+
         if let active {
             usage.tokens = active.tokens
             usage.costUSD = active.cost
             usage.lastActivity = active.lastActivity
-            usage.session.resetsAt = active.end
+            usage.session.resetsAt = calibratedEnd ?? active.end
             usage.session.fraction = sessionLimit > 0
                 ? min(value(active) / sessionLimit, 1.4)
                 : nil
@@ -232,11 +247,10 @@ final class ClaudeCodeProvider: UsageProvider, @unchecked Sendable {
                 current = b
             } else {
                 if let b = current { blocks.append(b) }
-                // Truncate to the top of the hour. `date(bySetting:)` would roll
-                // *forward* to the next matching hour, which puts the block in the future.
-                let cal = Calendar.current
-                let start = cal.date(from: cal.dateComponents([.year, .month, .day, .hour], from: e.timestamp))
-                    ?? e.timestamp
+                // Anchor to the message itself. Rounding down to the hour shifted
+                // every boundary by up to 59 minutes, and the error compounds across
+                // chained windows.
+                let start = e.timestamp
                 var b = Block(start: start,
                               end: start.addingTimeInterval(Self.blockDuration),
                               lastActivity: e.timestamp)
@@ -247,6 +261,25 @@ final class ClaudeCodeProvider: UsageProvider, @unchecked Sendable {
         }
         if let b = current { blocks.append(b) }
         return blocks
+    }
+
+    /// Rolls a calibrated window forward in five-hour steps.
+    ///
+    /// Anthropic starts a window at your first message after the previous one lapsed,
+    /// and the transcripts only record Claude Code — anything done in the Claude app
+    /// is invisible here, so a reconstructed boundary can be an hour out. One
+    /// calibration pins it; from then on the window simply chains.
+    static func calibratedWindowEnd(now: Date) -> Date? {
+        guard let anchor = Settings.shared.claudeWindowAnchor else { return nil }
+        var end = anchor
+        // Chain forward if the anchor is in the past, but give up once it is stale
+        // enough that the user has plainly been idle through a window or two.
+        var steps = 0
+        while end <= now && steps < 200 {
+            end = end.addingTimeInterval(blockDuration)
+            steps += 1
+        }
+        return end > now ? end : nil
     }
 
     /// Heaviest 7-day rolling total in the retained history, used as the auto weekly ceiling.
