@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 
 /// Set USAGENOTCH_DEBUG=1 to trace the refresh pipeline on stderr.
 func usageDebug(_ message: @autoclosure () -> String) {
@@ -49,6 +50,30 @@ final class UsageStore: ObservableObject {
         var providers: [ProviderUsage] = []
         for provider in active() { providers.append(provider.fetch(now: now)) }
         snapshot = UsageSnapshot(providers: providers, updatedAt: now)
+    }
+
+    /// Plausible stand-in readings for the README screenshots.
+    func loadDemoData() {
+        let now = Date()
+        var claude = ProviderUsage(
+            id: "claude-code", name: "Claude Code", glyph: "CC",
+            tint: Color(red: 0.85, green: 0.53, blue: 0.35),
+            session: UsageWindow(fraction: 0.38, resetsAt: now.addingTimeInterval(2 * 3600 + 41 * 60),
+                                 label: "5h", estimated: false),
+            week: UsageWindow(fraction: 0.21, resetsAt: nil, label: "7d", estimated: false),
+            tokens: 4_200_000, costUSD: nil, plan: "max", lastActivity: now, status: .ok
+        )
+        claude.footnote = nil
+        var codex = ProviderUsage(
+            id: "codex", name: "Codex", glyph: "CX",
+            tint: Color(red: 0.44, green: 0.72, blue: 0.98),
+            session: UsageWindow(fraction: 0.72, resetsAt: now.addingTimeInterval(3 * 3600 + 12 * 60),
+                                 label: "5h", estimated: false),
+            week: UsageWindow(fraction: 0.46, resetsAt: nil, label: "7d", estimated: false),
+            tokens: 1_800_000, costUSD: nil, plan: "plus", lastActivity: now, status: .ok
+        )
+        codex.footnote = nil
+        snapshot = UsageSnapshot(providers: [claude, codex], updatedAt: now)
     }
 
     func refresh() {

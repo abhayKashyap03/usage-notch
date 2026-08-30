@@ -12,9 +12,15 @@ enum RenderHarness {
 
         let store = UsageStore()
         let state = NotchState()
-        // No NSApplication run loop here, so fetch inline rather than waiting on
-        // a main-queue hop that would never be delivered.
-        store.refreshBlocking()
+        if CommandLine.arguments.contains("--demo") {
+            // Documentation screenshots ship with stand-in numbers so nobody has to
+            // publish their own spend.
+            store.loadDemoData()
+        } else {
+            // No NSApplication run loop here, so fetch inline rather than waiting on
+            // a main-queue hop that would never be delivered.
+            store.refreshBlocking()
+        }
 
         let providers = max(store.snapshot.visible.count, 1)
         let edge = Settings.shared.edge
