@@ -50,9 +50,18 @@ final class CodexProvider: UsageProvider, @unchecked Sendable {
                 usage.week.label = Self.label(minutes: secondary.windowMinutes, fallback: "7d")
                 if let minutes = secondary.windowMinutes { usage.week.length = TimeInterval(minutes) * 60 }
             }
+            // A pinned window beats the reported one, which is only as current as
+            // your last Codex turn and may describe a different bucket than the
+            // ChatGPT app's.
+            if let pinned = Self.pinnedWindowEnd(now: now) {
+                usage.session.resetsAt = pinned
+                usage.session.length = 5 * 3600
+            }
             usage.status = usage.session.fraction == nil ? .idle : .ok
             if usage.session.fraction == nil {
                 usage.footnote = "No rate-limit data in latest session"
+            } else if Settings.shared.codexWindowAnchor != nil {
+                usage.footnote = "reset calibrated"
             } else if let stamp = usage.lastActivity, now.timeIntervalSince(stamp) > 300 {
                 // These numbers come from Codex's own last server response, so they are
                 // only as fresh as your last Codex turn — usage from other surfaces
@@ -120,6 +129,18 @@ final class CodexProvider: UsageProvider, @unchecked Sendable {
         guard let d = raw as? [String: Any], let used = d["used_percent"] as? Double else { return nil }
         let resets = (d["resets_at"] as? Double).map { Date(timeIntervalSince1970: $0) }
         return Limit(percent: used, windowMinutes: d["window_minutes"] as? Int, resetsAt: resets)
+    }
+
+    /// Rolls a calibrated window forward in five-hour steps.
+    private static func pinnedWindowEnd(now: Date) -> Date? {
+        guard let anchor = Settings.shared.codexWindowAnchor else { return nil }
+        var end = anchor
+        var steps = 0
+        while end <= now && steps < 200 {
+            end = end.addingTimeInterval(5 * 3600)
+            steps += 1
+        }
+        return end > now ? end : nil
     }
 
     private static func label(minutes: Int?, fallback: String) -> String {

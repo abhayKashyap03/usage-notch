@@ -60,7 +60,9 @@ final class Settings {
         static let topOffset = "topOffset"
         static let showAgents = "showAgents"
         static let lastBlockValue = "lastBlockValue"
+        static let lastWeekValue = "lastWeekValue"
         static let claudeWindowAnchor = "claudeWindowAnchor"
+        static let codexWindowAnchor = "codexWindowAnchor"
         static let showWorkspaceState = "showWorkspaceState"
     }
 
@@ -186,6 +188,23 @@ final class Settings {
             return value > 0 ? Date(timeIntervalSince1970: value) : nil
         }
         set { d.set(newValue?.timeIntervalSince1970 ?? 0, forKey: K.claudeWindowAnchor) }
+    }
+
+    /// Same idea for Codex, whose reported reset can be hours stale or describe a
+    /// different limit bucket than the one the ChatGPT app shows.
+    var codexWindowAnchor: Date? {
+        get {
+            let value = d.double(forKey: K.codexWindowAnchor)
+            return value > 0 ? Date(timeIntervalSince1970: value) : nil
+        }
+        set { d.set(newValue?.timeIntervalSince1970 ?? 0, forKey: K.codexWindowAnchor) }
+    }
+
+    /// Value of the trailing week, so the weekly ring can be calibrated the same way
+    /// the 5-hour one is.
+    var lastWeekValue: Double {
+        get { d.double(forKey: K.lastWeekValue) }
+        set { d.set(newValue, forKey: K.lastWeekValue) }
     }
 
     var refreshSeconds: Double {

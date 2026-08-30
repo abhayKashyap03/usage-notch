@@ -523,22 +523,28 @@ final class NotchController: NSObject, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         let alert = NSAlert()
-        alert.messageText = "Calibrate the 5-hour window"
+        alert.messageText = "Calibrate the 5-hour windows"
         alert.informativeText =
             "Open Claude, read the current 5-hour usage percentage and how long until it "
-            + "resets, and put both here. The percentage sets the ceiling; the reset time "
-            + "pins the window, which then chains forward every five hours.\n\n"
-            + "Leave a field blank to leave that half alone."
+            + "resets, and put them here. The percentage sets the ceiling; a reset time "
+            + "pins that window, which then chains forward every five hours.\n\n"
+            + "Codex has its own field because its reported reset comes from your last "
+            + "Codex turn and can be hours old. Leave any field blank to leave it alone."
 
-        let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 52))
+        let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 112))
         stack.orientation = .vertical
         stack.spacing = 6
-        let percentField = NSTextField(); percentField.placeholderString = "usage %, e.g. 78"
-        let resetField = NSTextField(); resetField.placeholderString = "minutes until reset, e.g. 20"
+        let percentField = NSTextField(); percentField.placeholderString = "Claude: usage %, e.g. 78"
+        let resetField = NSTextField(); resetField.placeholderString = "Claude: minutes until reset"
+        let weeklyField = NSTextField(); weeklyField.placeholderString = "Claude: weekly %"
+        let codexField = NSTextField(); codexField.placeholderString = "Codex: minutes until reset"
         stack.addArrangedSubview(percentField)
         stack.addArrangedSubview(resetField)
-        percentField.widthAnchor.constraint(equalToConstant: 240).isActive = true
-        resetField.widthAnchor.constraint(equalToConstant: 240).isActive = true
+        stack.addArrangedSubview(weeklyField)
+        stack.addArrangedSubview(codexField)
+        for field in [percentField, resetField, weeklyField, codexField] {
+            field.widthAnchor.constraint(equalToConstant: 240).isActive = true
+        }
         alert.accessoryView = stack
 
         alert.addButton(withTitle: "Set")
@@ -559,14 +565,27 @@ final class NotchController: NSObject, NSMenuDelegate {
         }
         if let minutes = number(resetField), minutes > 0, minutes <= 300 {
             Settings.shared.claudeWindowAnchor = Date().addingTimeInterval(minutes * 60)
-            debugLog("calibrated window end: in \(minutes)m")
+            debugLog("calibrated Claude window end: in \(minutes)m")
+        }
+        if let weekly = number(weeklyField), weekly > 1, weekly <= 100 {
+            let weekValue = Settings.shared.lastWeekValue
+            if weekValue > 0 {
+                Settings.shared.claudeWeeklyLimit = weekValue / (weekly / 100)
+                debugLog("calibrated weekly ceiling: \(weekValue) is \(weekly)%")
+            }
+        }
+        if let minutes = number(codexField), minutes > 0, minutes <= 300 {
+            Settings.shared.codexWindowAnchor = Date().addingTimeInterval(minutes * 60)
+            debugLog("calibrated Codex window end: in \(minutes)m")
         }
         refresh(spin: true)
     }
 
     @objc private func menuClearCalibration() {
         Settings.shared.claudeSessionLimit = 0
+        Settings.shared.claudeWeeklyLimit = 0
         Settings.shared.claudeWindowAnchor = nil
+        Settings.shared.codexWindowAnchor = nil
         refresh(spin: false)
     }
 
@@ -729,7 +748,8 @@ final class NotchController: NSObject, NSMenuDelegate {
         }
         sources.addItem(.separator())
         sources.addItem(item("Calibrate 5-hour limit…", #selector(menuCalibrate)))
-        if s.claudeSessionLimit > 0 || s.claudeWindowAnchor != nil {
+        if s.claudeSessionLimit > 0 || s.claudeWeeklyLimit > 0
+            || s.claudeWindowAnchor != nil || s.codexWindowAnchor != nil {
             sources.addItem(item("Clear calibration", #selector(menuClearCalibration)))
         }
         sources.addItem(.separator())

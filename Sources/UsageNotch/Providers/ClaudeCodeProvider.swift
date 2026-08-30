@@ -96,6 +96,7 @@ final class ClaudeCodeProvider: UsageProvider, @unchecked Sendable {
         let weekCost = weekEntries.reduce(0.0) { $0 + $1.cost }
         let weekValue = metric == .cost ? weekCost : Double(weekTokens)
 
+        Settings.shared.lastWeekValue = weekValue
         var weeklyLimit = Settings.shared.claudeWeeklyLimit
         if weeklyLimit <= 0 { weeklyLimit = max(peakRollingWeek(metric: metric), weekValue) }
 
