@@ -102,6 +102,7 @@ final class NotchController: NSObject, NSMenuDelegate {
 
     private var monitors: [Any] = []
     private var mouseTimer: Timer?
+    private var claimTimer: Timer?
     private var mouseInside = false
 
     private struct DragOrigin {
@@ -143,6 +144,22 @@ final class NotchController: NSObject, NSMenuDelegate {
         NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
             .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.rebuildLayout() }
+            .store(in: &bag)
+
+        // Keep our claim fresh so other widgets know we are still here, and drop it
+        // when we quit so they can reclaim the space.
+        let heartbeat = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.publishClaim(for: self.panel.frame)
+            }
+        }
+        heartbeat.tolerance = 5
+        RunLoop.main.add(heartbeat, forMode: .common)
+        claimTimer = heartbeat
+
+        NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
+            .sink { _ in NotchClaims.withdraw() }
             .store(in: &bag)
 
         NSWorkspace.shared.notificationCenter
@@ -241,6 +258,19 @@ final class NotchController: NSObject, NSMenuDelegate {
         let maxY = ceiling - (size.height - content.minY)
         frame.origin.x = min(max(frame.origin.x, minX), maxX)
         frame.origin.y = min(max(frame.origin.y, minY), maxY)
+
+        // Step around any other notch widget that already claimed this strip.
+        let obstacles = NotchClaims.obstacles(screen: geometry.screen.localizedName)
+        if !obstacles.isEmpty {
+            let contentScreen = CGRect(x: frame.minX + content.minX,
+                                       y: frame.maxY - content.maxY,
+                                       width: content.width, height: content.height)
+            let resolved = NotchClaims.resolve(rect: contentScreen, edge: placement.edge,
+                                               screen: geometry.screen, obstacles: obstacles)
+            frame.origin.x += resolved.minX - contentScreen.minX
+            frame.origin.y += resolved.minY - contentScreen.minY
+        }
+
         return CGRect(x: frame.origin.x.rounded(), y: frame.origin.y.rounded(),
                       width: size.width, height: size.height)
     }
@@ -250,9 +280,21 @@ final class NotchController: NSObject, NSMenuDelegate {
     }
 
     private func positionPanel() {
-        panel.setFrame(windowFrame(), display: true)
+        let frame = windowFrame()
+        panel.setFrame(frame, display: true)
+        publishClaim(for: frame)
         updateHitRegion(for: state.mode)
         panel.orderFrontRegardless()
+    }
+
+    /// Tell other notch widgets which strip of screen this one occupies.
+    private func publishClaim(for frame: CGRect) {
+        let content = currentPlacement().contentRect(window: frame.size, content: currentContentSize())
+        let screenRect = CGRect(x: frame.minX + content.minX,
+                                y: frame.maxY - content.maxY,
+                                width: content.width, height: content.height)
+        NotchClaims.publish(rect: screenRect, screen: geometry.screen.localizedName,
+                            edge: Settings.shared.edge)
     }
 
     private func rebuildLayout() {
