@@ -196,70 +196,40 @@ final class AnthropicAccountProvider: @unchecked Sendable {
     /// often the stalest. Every matching item is considered and the freshest unexpired
     /// token wins.
     private func keychainToken() -> String? {
-        // Two steps on purpose: asking for every item *and* its data at once is
-        // rejected with errSecParam (-50), so list the services first, then fetch
-        // each blob individually.
-        let listQuery: [String: Any] = [
+        // Only the exact service holds Claude's own credential. The suffixed
+        // `Claude Code-credentials-<hash>` items are per-plugin MCP tokens, and
+        // reading them raises a keychain prompt that can never produce an answer.
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecReturnAttributes as String: true,
-            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecAttrService as String: Self.service,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
         ]
-        var items: CFTypeRef?
-        let status = SecItemCopyMatching(listQuery as CFDictionary, &items)
-        guard status == errSecSuccess, let entries = items as? [[String: Any]] else {
-            usageDebug("account: keychain listing failed with OSStatus \(status)")
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess else {
+            usageDebug("account: keychain read failed with OSStatus \(status)")
+            lock.lock(); lastFailure = "keychain access not granted"; lock.unlock()
             return nil
         }
+        guard let data = item as? Data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
 
-        // Exact name first, then the per-installation variants. Reading an item the
-        // app has not been granted raises a keychain prompt, so stop at the first
-        // valid token rather than walking the whole list.
-        let services = Set(entries.compactMap { $0[kSecAttrService as String] as? String })
-            .filter { $0.hasPrefix(Self.service) }
-            .sorted { lhs, _ in lhs == Self.service }
-            // Suffixed items are per-plugin MCP tokens, not Claude credentials, and
-            // reading each one raises its own keychain prompt. Try a couple, no more.
-            .prefix(3)
-        guard !services.isEmpty else {
-            usageDebug("account: no Claude Code credentials found")
+        let oauth = (json["claudeAiOauth"] as? [String: Any]) ?? json
+        guard let token = oauth["accessToken"] as? String else {
+            usageDebug("account: credential has no access token")
             return nil
         }
-
-        var best: (token: String, expiry: Date)?
-        var sawExpired = false
-        for service in Array(services) {
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecReturnData as String: true,
-                kSecMatchLimit as String: kSecMatchLimitOne,
-            ]
-            var item: CFTypeRef?
-            guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-                  let data = item as? Data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else { continue }
-
-            let oauth = (json["claudeAiOauth"] as? [String: Any]) ?? json
-            guard let token = oauth["accessToken"] as? String else { continue }
-            let expiry = (oauth["expiresAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
-                ?? Date.distantFuture
-            guard expiry > Date() else { sawExpired = true; continue }
-            if best == nil || expiry > best!.expiry { best = (token, expiry) }
-            if best != nil { break }
+        if let expires = oauth["expiresAt"] as? Double {
+            let expiry = Date(timeIntervalSince1970: expires / 1000)
+            guard expiry > Date() else {
+                usageDebug("account: token expired at \(expiry); run `claude` to refresh it")
+                lock.lock(); lastFailure = "Claude token expired"; lock.unlock()
+                return nil
+            }
         }
-
-        if best == nil {
-            usageDebug(sawExpired
-                ? "account: every stored token has expired; Claude Code refreshes them on next use"
-                : "account: found credentials but no usable token")
-            lock.lock()
-            lastFailure = sawExpired ? "Claude Code token expired" : "no usable Claude credentials"
-            lock.unlock()
-        } else {
-            usageDebug("account: using token from \(services.count) candidate credential(s)")
-        }
-        return best?.token
+        return token
     }
 
 }
