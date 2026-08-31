@@ -192,7 +192,7 @@ private struct PillContent: View {
     }
 
     private func vertical(_ size: CGSize) -> some View {
-        VStack(spacing: 7) {
+        VStack(spacing: 8) {
             ForEach(sessions.prefix(2)) { session in
                 ActivityBars(tint: session.kind.tint, animating: session.isWorking, height: 9)
             }
@@ -205,7 +205,7 @@ private struct PillContent: View {
             }
             Capsule().fill(tone.color.opacity(0.9)).frame(width: 12, height: 3)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, Style.sidePillInset)
         .frame(width: size.width, height: size.height)
     }
 }
