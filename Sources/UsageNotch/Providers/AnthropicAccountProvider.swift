@@ -36,6 +36,8 @@ final class AnthropicAccountProvider: @unchecked Sendable {
     private var lastTimeout: Date?
     /// Set when a read gave up, so the panel can say the estimate is a fallback.
     private(set) var lastFailure: String?
+    /// True when the stored token has lapsed, which a CLI ping can fix.
+    private(set) var tokenExpired = false
 
     /// Fired on the main queue when a background load lands, so the UI can pick the
     /// real numbers up immediately instead of waiting for the next refresh tick.
@@ -56,7 +58,7 @@ final class AnthropicAccountProvider: @unchecked Sendable {
                 guard let self else { return }
                 let fresh = self.loadWithTimeout()
                 self.lock.lock()
-                if fresh != nil { self.cached = fresh; self.lastTimeout = nil }
+                if fresh != nil { self.cached = fresh; self.lastTimeout = nil; self.tokenExpired = false }
                 self.lastAttempt = Date()
                 self.inFlight = false
                 self.lock.unlock()
@@ -224,8 +226,8 @@ final class AnthropicAccountProvider: @unchecked Sendable {
         if let expires = oauth["expiresAt"] as? Double {
             let expiry = Date(timeIntervalSince1970: expires / 1000)
             guard expiry > Date() else {
-                usageDebug("account: token expired at \(expiry); run `claude` to refresh it")
-                lock.lock(); lastFailure = "Claude token expired"; lock.unlock()
+                usageDebug("account: token expired at \(expiry)")
+                lock.lock(); lastFailure = "Claude token expired"; tokenExpired = true; lock.unlock()
                 return nil
             }
         }

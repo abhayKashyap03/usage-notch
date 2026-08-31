@@ -173,6 +173,32 @@ final class UsageStore: ObservableObject {
         ]
     }
 
+    /// Nudges the CLIs when their data has gone stale. Claude's token lapses after
+    /// hours and only a real request renews it; Codex publishes its limits only while
+    /// running, so a stale reading and a stale token have the same cure.
+    private func refreshStaleCredentials(_ snapshot: UsageSnapshot, now: Date) {
+        guard Settings.shared.autoRefreshTokens else { return }
+
+        if Settings.shared.useAnthropicAccount, claude.account.tokenExpired {
+            pool.async {
+                if CLIRefresher.refreshClaude() {
+                    DispatchQueue.main.async { self.claude.account.reset(); self.refresh() }
+                }
+            }
+        }
+
+        // Codex's numbers come from its transcripts, so an hour without a session
+        // means an hour-old reading no matter how often we poll.
+        if let codexRow = snapshot.providers.first(where: { $0.id == "codex" }),
+           let seen = codexRow.lastActivity, now.timeIntervalSince(seen) > 45 * 60 {
+            pool.async {
+                if CLIRefresher.refreshCodex() {
+                    DispatchQueue.main.async { self.refresh() }
+                }
+            }
+        }
+    }
+
     func refresh() {
         guard !isRefreshing else { return }
         let providers = active().filter { !stalled.contains($0.id) }
@@ -216,6 +242,7 @@ final class UsageStore: ObservableObject {
     /// Slots one provider's fresh reading into the snapshot, keeping the configured
     /// provider order stable.
     private func merge(_ usage: ProviderUsage, order: [String], now: Date) {
+        defer { refreshStaleCredentials(snapshot, now: now) }
         var rows = snapshot.providers.filter { order.contains($0.id) && $0.id != usage.id }
         rows.append(usage)
         rows.sort { (order.firstIndex(of: $0.id) ?? 0) < (order.firstIndex(of: $1.id) ?? 0) }

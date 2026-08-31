@@ -62,6 +62,7 @@ final class Settings {
         static let lastBlockValue = "lastBlockValue"
         static let lastWeekValue = "lastWeekValue"
         static let claudeWindowAnchor = "claudeWindowAnchor"
+        static let autoRefreshTokens = "autoRefreshTokens"
         static let codexWindowAnchor = "codexWindowAnchor"
         static let showWorkspaceState = "showWorkspaceState"
     }
@@ -82,6 +83,7 @@ final class Settings {
             K.sideOffset: 0.0,
             K.topOffset: 0.0,
             K.showAgents: true,
+            K.autoRefreshTokens: true,
             K.showWorkspaceState: true,
         ])
     }
@@ -205,6 +207,13 @@ final class Settings {
     var lastWeekValue: Double {
         get { d.double(forKey: K.lastWeekValue) }
         set { d.set(newValue, forKey: K.lastWeekValue) }
+    }
+
+    /// Let the app run a minimal `claude`/`codex` request when their data has gone
+    /// stale, which is the only thing that renews their tokens.
+    var autoRefreshTokens: Bool {
+        get { d.bool(forKey: K.autoRefreshTokens) }
+        set { d.set(newValue, forKey: K.autoRefreshTokens) }
     }
 
     var refreshSeconds: Double {

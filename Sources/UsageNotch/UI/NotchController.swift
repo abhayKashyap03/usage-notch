@@ -611,6 +611,10 @@ final class NotchController: NSObject, NSMenuDelegate {
         refresh(spin: false)
     }
 
+    @objc private func menuToggleAutoRefresh() {
+        Settings.shared.autoRefreshTokens.toggle()
+    }
+
     @objc private func menuToggleAccount() {
         let enabling = !Settings.shared.useAnthropicAccount
         Settings.shared.useAnthropicAccount = enabling
@@ -775,6 +779,9 @@ final class NotchController: NSObject, NSMenuDelegate {
             sources.addItem(item("Clear calibration", #selector(menuClearCalibration)))
         }
         sources.addItem(.separator())
+        let autoRefresh = item("Keep tokens fresh automatically", #selector(menuToggleAutoRefresh))
+        autoRefresh.state = s.autoRefreshTokens ? .on : .off
+        sources.addItem(autoRefresh)
         let account = item("Use Claude account limits (keychain)", #selector(menuToggleAccount))
         account.state = s.useAnthropicAccount ? .on : .off
         sources.addItem(account)
