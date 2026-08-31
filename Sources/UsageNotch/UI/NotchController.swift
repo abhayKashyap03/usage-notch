@@ -178,6 +178,15 @@ final class NotchController: NSObject, NSMenuDelegate {
 
         store.claude.account.onUpdate = { [weak self] in self?.refresh(spin: false) }
 
+        // Ask for the real numbers straight away rather than waiting for a poll that
+        // a previous version gated behind a success that could never happen.
+        if Settings.shared.useAnthropicAccount {
+            store.claude.account.probe { [weak self] ok in
+                self?.debugLog("startup account probe: \(ok)")
+                self?.refresh(spin: false)
+            }
+        }
+
         state.placement = currentPlacement()
         state.mode = state.restingMode
         updateHitRegion(for: state.mode)
@@ -199,7 +208,11 @@ final class NotchController: NSObject, NSMenuDelegate {
         hosting.onDebug = { [weak self] message in self?.debugLog(message) }
         hosting.onPrimaryClick = { [weak self] in self?.refresh(spin: true) }
         hosting.onTargetClick = { [weak self] id in
-            if id == "work-mode" { self?.toggleMiniMode() }
+            switch id {
+            case "work-mode": self?.toggleMiniMode()
+            case "settings": self?.showMenuAtPill()
+            default: break
+            }
         }
         hosting.onSecondaryClick = { [weak self] location in self?.showContextMenu(at: location) }
         hosting.onDragBegan = { [weak self] in self?.dragBegan() }
@@ -450,6 +463,12 @@ final class NotchController: NSObject, NSMenuDelegate {
         Settings.shared.miniMode.toggle()
         debugLog("work mode -> \(Settings.shared.miniMode)")
         state.settleToResting()
+    }
+
+    /// Opens the menu next to the pill itself, for when the menu-bar icon is hidden.
+    private func showMenuAtPill() {
+        let rect = contentScreenRect()
+        showContextMenu(at: NSPoint(x: rect.midX, y: rect.minY))
     }
 
     /// Right-clicking the pill opens the same menu the status item carries.

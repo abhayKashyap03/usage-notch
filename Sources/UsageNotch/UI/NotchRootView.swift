@@ -355,6 +355,16 @@ private struct ExpandedContent: View {
             Text("click to refresh")
                 .font(.system(size: 9, weight: .medium, design: .rounded))
                 .foregroundStyle(.white.opacity(0.28))
+
+            // The menu-bar icon is the first thing macOS hides when the bar is full,
+            // which on a notched Mac is most of the time. Settings live here too.
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.5))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 4)
+                .background(Color.white.opacity(0.07), in: Capsule())
+                .hitTarget("settings", report: onHitTargets)
         }
     }
 }

@@ -29,10 +29,11 @@ final class AnthropicAccountProvider: @unchecked Sendable {
     private var cached: Result?
     private var lastAttempt: Date = .distantPast
     private var inFlight = false
-    /// True once a read has actually worked. Until then we do not retry in the
-    /// background: the keychain can block on an authorisation prompt, and an
-    /// accessory app cannot reliably show one.
-    private var everSucceeded = false
+    /// Set when a read timed out waiting on a keychain prompt. Backing off then is
+    /// right; refusing to try at all — which is what gating on a prior success did —
+    /// meant the account path never ran, and the panel silently showed estimates
+    /// forever even with a perfectly good token sitting in the keychain.
+    private var lastTimeout: Date?
     /// Set when a read gave up, so the panel can say the estimate is a fallback.
     private(set) var lastFailure: String?
 
@@ -44,8 +45,9 @@ final class AnthropicAccountProvider: @unchecked Sendable {
     func utilisation(now: Date = Date()) -> Result? {
         lock.lock()
         let result = cached
-        // Only poll on a schedule once we know the read works unattended.
-        let due = !inFlight && everSucceeded && now.timeIntervalSince(lastAttempt) > Self.refreshInterval
+        // Back off only after a prompt actually blocked us, not by default.
+        let blocked = lastTimeout.map { now.timeIntervalSince($0) < 600 } ?? false
+        let due = !inFlight && !blocked && now.timeIntervalSince(lastAttempt) > Self.refreshInterval
         if due { inFlight = true }
         lock.unlock()
 
@@ -54,7 +56,7 @@ final class AnthropicAccountProvider: @unchecked Sendable {
                 guard let self else { return }
                 let fresh = self.loadWithTimeout()
                 self.lock.lock()
-                if fresh != nil { self.cached = fresh; self.everSucceeded = true }
+                if fresh != nil { self.cached = fresh; self.lastTimeout = nil }
                 self.lastAttempt = Date()
                 self.inFlight = false
                 self.lock.unlock()
@@ -74,7 +76,7 @@ final class AnthropicAccountProvider: @unchecked Sendable {
             let result = self.loadWithTimeout(seconds: 30)   // a prompt needs answering
             self.lock.lock()
             self.cached = result
-            if result != nil { self.everSucceeded = true }
+
             self.lastAttempt = Date()
             self.lock.unlock()
             DispatchQueue.main.async { completion(result != nil) }
@@ -85,7 +87,7 @@ final class AnthropicAccountProvider: @unchecked Sendable {
     func probeBlocking(seconds: TimeInterval = 12) -> Result? {
         let result = loadWithTimeout(seconds: seconds)
         lock.lock()
-        if result != nil { cached = result; everSucceeded = true }
+        if result != nil { cached = result; lastTimeout = nil }
         lastAttempt = Date()
         lock.unlock()
         return result
@@ -108,7 +110,10 @@ final class AnthropicAccountProvider: @unchecked Sendable {
             done.signal()
         }
         if done.wait(timeout: .now() + seconds) == .timedOut {
-            lock.lock(); lastFailure = "keychain access is waiting for approval"; lock.unlock()
+            lock.lock()
+            lastFailure = "keychain access is waiting for approval"
+            lastTimeout = Date()
+            lock.unlock()
             usageDebug("account: timed out (likely an unanswered keychain prompt)")
             return nil
         }
