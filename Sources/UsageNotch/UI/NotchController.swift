@@ -232,7 +232,10 @@ final class NotchController: NSObject, NSMenuDelegate {
             state: state,
             onRefresh: { [weak self] in self?.refresh(spin: true) },
             onToggleMini: { [weak self] in self?.toggleMiniMode() },
-            onHitTargets: { [weak self] targets in self?.hosting?.hitTargets = targets },
+            onHitTargets: { [weak self] targets in
+                self?.hosting?.hitTargets = targets
+                self?.debugLog("targets=" + targets.map(\.id).sorted().joined(separator: ","))
+            },
             onPanelHeight: { [weak self] height in
                 self?.debugLog("panel measured \(height)")
                 self?.positionPanel()

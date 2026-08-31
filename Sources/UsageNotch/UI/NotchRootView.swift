@@ -219,6 +219,8 @@ private struct ExpandedContent: View {
     var onHitTargets: ([HitTarget]) -> Void
     var onHeight: (CGFloat) -> Void
 
+    @State private var targets: [String: CGRect] = [:]
+
     var body: some View {
         let size = layout.size(for: .expanded)
         VStack(spacing: 0) {
@@ -235,6 +237,9 @@ private struct ExpandedContent: View {
                 .background(RectReader { onHeight($0.height) })
         }
         .frame(width: size.width, alignment: .top)
+        .onChange(of: targets) { _, new in
+            onHitTargets(new.map { HitTarget(id: $0.key, rect: $0.value) })
+        }
     }
 
     private var islandBand: some View {
@@ -348,7 +353,7 @@ private struct ExpandedContent: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(Color.white.opacity(0.07), in: Capsule())
-            .hitTarget("work-mode", report: onHitTargets)
+            .measured("work-mode", into: $targets)
 
             Spacer()
 
@@ -364,7 +369,7 @@ private struct ExpandedContent: View {
                 .padding(.horizontal, 5)
                 .padding(.vertical, 4)
                 .background(Color.white.opacity(0.07), in: Capsule())
-                .hitTarget("settings", report: onHitTargets)
+                .measured("settings", into: $targets)
         }
     }
 }

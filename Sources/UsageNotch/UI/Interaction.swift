@@ -37,8 +37,16 @@ struct RectReader: View {
 }
 
 extension View {
-    /// Reports this view's rect as a clickable target for the AppKit layer.
-    func hitTarget(_ id: String, report: @escaping ([HitTarget]) -> Void) -> some View {
-        background(RectReader { rect in report([HitTarget(id: id, rect: rect)]) })
+    /// Records this view's rect in a shared table of clickable targets.
+    ///
+    /// Reporting each control as its own one-element list — which is what this used
+    /// to do — meant the last control measured replaced every other, so all but one
+    /// silently stopped responding.
+    func measured(_ id: String, into targets: Binding<[String: CGRect]>) -> some View {
+        background(
+            RectReader { rect in
+                if targets.wrappedValue[id] != rect { targets.wrappedValue[id] = rect }
+            }
+        )
     }
 }
