@@ -22,7 +22,9 @@ final class AnthropicAccountProvider: @unchecked Sendable {
 
     private static let service = "Claude Code-credentials"
     private static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
-    private static let refreshInterval: TimeInterval = 120
+    /// The usage endpoint rate-limits, so ask rarely: plan utilisation moves slowly
+    /// and nothing here is worth a 429.
+    private static let refreshInterval: TimeInterval = 300
 
     private let queue = DispatchQueue(label: "com.abhaykashyap.usagenotch.account", qos: .utility)
     private let lock = NSLock()
@@ -34,6 +36,8 @@ final class AnthropicAccountProvider: @unchecked Sendable {
     /// meant the account path never ran, and the panel silently showed estimates
     /// forever even with a perfectly good token sitting in the keychain.
     private var lastTimeout: Date?
+    /// Set when the endpoint asks us to slow down.
+    private var backoffUntil: Date?
     /// Set when a read gave up, so the panel can say the estimate is a fallback.
     private(set) var lastFailure: String?
     /// True when the stored token has lapsed, which a CLI ping can fix.
@@ -48,7 +52,8 @@ final class AnthropicAccountProvider: @unchecked Sendable {
         lock.lock()
         let result = cached
         // Back off only after a prompt actually blocked us, not by default.
-        let blocked = lastTimeout.map { now.timeIntervalSince($0) < 600 } ?? false
+        let blocked = (lastTimeout.map { now.timeIntervalSince($0) < 600 } ?? false)
+            || (backoffUntil.map { now < $0 } ?? false)
         let due = !inFlight && !blocked && now.timeIntervalSince(lastAttempt) > Self.refreshInterval
         if due { inFlight = true }
         lock.unlock()
@@ -86,6 +91,12 @@ final class AnthropicAccountProvider: @unchecked Sendable {
     }
 
     /// Diagnostic path: read once, right now, and say what happened.
+    /// True while the endpoint has told us to wait.
+    var isBackingOff: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return backoffUntil.map { Date() < $0 } ?? false
+    }
+
     func probeBlocking(seconds: TimeInterval = 12) -> Result? {
         let result = loadWithTimeout(seconds: seconds)
         lock.lock()
@@ -143,6 +154,17 @@ final class AnthropicAccountProvider: @unchecked Sendable {
             } else {
                 // Keys and status only: never the token, never the body verbatim.
                 usageDebug("account: HTTP \(status) \(error.map { "error: \($0.localizedDescription)" } ?? "")")
+                if status == 429 {
+                    // Honour Retry-After when offered; otherwise wait long enough that
+                    // repeated launches cannot keep us throttled.
+                    let retryAfter = (response as? HTTPURLResponse)?
+                        .value(forHTTPHeaderField: "Retry-After")
+                        .flatMap(Double.init) ?? 900
+                    self.lock.lock()
+                    self.backoffUntil = Date().addingTimeInterval(min(max(retryAfter, 60), 3600))
+                    self.lastFailure = "usage endpoint rate-limited"
+                    self.lock.unlock()
+                }
             }
             done.signal()
         }.resume()

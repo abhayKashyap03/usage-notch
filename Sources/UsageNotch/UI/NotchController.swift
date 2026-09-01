@@ -180,7 +180,7 @@ final class NotchController: NSObject, NSMenuDelegate {
 
         // Ask for the real numbers straight away rather than waiting for a poll that
         // a previous version gated behind a success that could never happen.
-        if Settings.shared.useAnthropicAccount {
+        if Settings.shared.useAnthropicAccount, !store.claude.account.isBackingOff {
             store.claude.account.probe { [weak self] ok in
                 self?.debugLog("startup account probe: \(ok)")
                 self?.refresh(spin: false)
