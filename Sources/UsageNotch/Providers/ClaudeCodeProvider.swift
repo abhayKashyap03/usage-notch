@@ -146,6 +146,9 @@ final class ClaudeCodeProvider: UsageProvider, @unchecked Sendable {
             }
             usage.plan = real.plan
             usage.status = .ok
+            if let fetched = account.lastSuccess, now.timeIntervalSince(fetched) > 600 {
+                usage.footnote = "account data \(Int(now.timeIntervalSince(fetched) / 60))m old"
+            }
             usageDebug("claude: account limits applied (5h=\(usage.session.percent.map(String.init) ?? "–")%)")
         }
 

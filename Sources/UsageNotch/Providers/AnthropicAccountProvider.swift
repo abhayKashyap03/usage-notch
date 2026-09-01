@@ -38,6 +38,7 @@ final class AnthropicAccountProvider: @unchecked Sendable {
     private var lastTimeout: Date?
     /// Set when the endpoint asks us to slow down.
     private var backoffUntil: Date?
+    private var lastSuccessAt: Date?
     /// Set when a read gave up, so the panel can say the estimate is a fallback.
     private(set) var lastFailure: String?
     /// True when the stored token has lapsed, which a CLI ping can fix.
@@ -52,7 +53,7 @@ final class AnthropicAccountProvider: @unchecked Sendable {
         lock.lock()
         let result = cached
         // Back off only after a prompt actually blocked us, not by default.
-        let blocked = (lastTimeout.map { now.timeIntervalSince($0) < 600 } ?? false)
+        let blocked = (lastTimeout.map { now.timeIntervalSince($0) < 120 } ?? false)
             || (backoffUntil.map { now < $0 } ?? false)
         let due = !inFlight && !blocked && now.timeIntervalSince(lastAttempt) > Self.refreshInterval
         if due { inFlight = true }
@@ -63,7 +64,12 @@ final class AnthropicAccountProvider: @unchecked Sendable {
                 guard let self else { return }
                 let fresh = self.loadWithTimeout()
                 self.lock.lock()
-                if fresh != nil { self.cached = fresh; self.lastTimeout = nil; self.tokenExpired = false }
+                if fresh != nil {
+                    self.cached = fresh
+                    self.lastTimeout = nil
+                    self.tokenExpired = false
+                    self.lastSuccessAt = Date()
+                }
                 self.lastAttempt = Date()
                 self.inFlight = false
                 self.lock.unlock()
@@ -91,6 +97,12 @@ final class AnthropicAccountProvider: @unchecked Sendable {
     }
 
     /// Diagnostic path: read once, right now, and say what happened.
+    /// When the cached answer was fetched, so the panel can admit to showing old data.
+    var lastSuccess: Date? {
+        lock.lock(); defer { lock.unlock() }
+        return cached == nil ? nil : lastSuccessAt
+    }
+
     /// True while the endpoint has told us to wait.
     var isBackingOff: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -115,7 +127,12 @@ final class AnthropicAccountProvider: @unchecked Sendable {
 
     /// Reads with a deadline. `SecItemCopyMatching` blocks indefinitely while an
     /// authorisation prompt is unanswered, which would otherwise wedge the refresh.
-    private func loadWithTimeout(seconds: TimeInterval = 5) -> Result? {
+    /// 20 seconds, not 5: the read is a keychain lookup *and* a network round trip,
+    /// and a deadline tight enough to trip on a slow response was being mistaken for
+    /// "a prompt is blocking us" — which parked the background path for ten minutes,
+    /// where it timed out and parked again. Toggling the setting was the only way out,
+    /// because that path always had thirty seconds.
+    private func loadWithTimeout(seconds: TimeInterval = 20) -> Result? {
         let done = DispatchSemaphore(value: 0)
         var result: Result?
         DispatchQueue.global(qos: .utility).async {
