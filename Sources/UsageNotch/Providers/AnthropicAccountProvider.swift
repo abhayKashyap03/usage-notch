@@ -41,6 +41,9 @@ final class AnthropicAccountProvider: @unchecked Sendable {
     private var lastSuccessAt: Date?
     /// Set when a read gave up, so the panel can say the estimate is a fallback.
     private(set) var lastFailure: String?
+    /// Whether that failure is worth waiting out. A rate limit or a lapsed token
+    /// resolves itself; a denied keychain or a missing credential does not.
+    private(set) var lastFailureIsTransient = true
     /// True when the stored token has lapsed, which a CLI ping can fix.
     private(set) var tokenExpired = false
 
@@ -142,6 +145,7 @@ final class AnthropicAccountProvider: @unchecked Sendable {
         if done.wait(timeout: .now() + seconds) == .timedOut {
             lock.lock()
             lastFailure = "keychain access is waiting for approval"
+            lastFailureIsTransient = true
             lastTimeout = Date()
             lock.unlock()
             usageDebug("account: timed out (likely an unanswered keychain prompt)")
@@ -180,6 +184,7 @@ final class AnthropicAccountProvider: @unchecked Sendable {
                     self.lock.lock()
                     self.backoffUntil = Date().addingTimeInterval(min(max(retryAfter, 60), 3600))
                     self.lastFailure = "usage endpoint rate-limited"
+                    self.lastFailureIsTransient = true
                     self.lock.unlock()
                 }
             }
@@ -250,7 +255,10 @@ final class AnthropicAccountProvider: @unchecked Sendable {
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         guard status == errSecSuccess else {
             usageDebug("account: keychain read failed with OSStatus \(status)")
-            lock.lock(); lastFailure = "keychain access not granted"; lock.unlock()
+            lock.lock()
+            lastFailure = "keychain access not granted"
+            lastFailureIsTransient = false
+            lock.unlock()
             return nil
         }
         guard let data = item as? Data,
@@ -266,7 +274,11 @@ final class AnthropicAccountProvider: @unchecked Sendable {
             let expiry = Date(timeIntervalSince1970: expires / 1000)
             guard expiry > Date() else {
                 usageDebug("account: token expired at \(expiry)")
-                lock.lock(); lastFailure = "Claude token expired"; tokenExpired = true; lock.unlock()
+                lock.lock()
+                lastFailure = "Claude token expired"
+                lastFailureIsTransient = true   // the CLI refresher renews it
+                tokenExpired = true
+                lock.unlock()
                 return nil
             }
         }

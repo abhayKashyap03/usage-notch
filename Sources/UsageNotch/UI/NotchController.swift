@@ -633,18 +633,35 @@ final class NotchController: NSObject, NSMenuDelegate {
         // Probe once, in the foreground, so the keychain prompt is visible and a
         // refusal turns the setting back off instead of silently doing nothing.
         store.claude.account.probe { [weak self] ok in
+            guard let self else { return }
             if !ok {
-                Settings.shared.useAnthropicAccount = false
+                let account = self.store.claude.account
+                let reason = account.lastFailure ?? "Anthropic returned no usage data"
+                let detail = reason.prefix(1).uppercased() + reason.dropFirst()
+
+                // Only abandon the setting when the failure is permanent. A rate limit
+                // or a lapsed token clears on its own, and switching the option off for
+                // one left the panel on estimates until somebody noticed and switched
+                // it back — which is exactly what kept happening.
+                if !account.lastFailureIsTransient {
+                    Settings.shared.useAnthropicAccount = false
+                }
+
                 let alert = NSAlert()
-                alert.messageText = "Could not read your Claude usage"
-                alert.informativeText = """
-                Keychain access was denied, the stored token has expired, or Anthropic \
-                did not return usage data. Usage Notch will keep using the local estimate.
-                """
+                alert.messageText = account.lastFailureIsTransient
+                    ? "Claude usage is temporarily unavailable"
+                    : "Could not read your Claude usage"
+                alert.informativeText = account.lastFailureIsTransient
+                    ? detail + ". The setting stays on and the panel keeps retrying; it "
+                        + "switches back to real figures as soon as one succeeds. Until "
+                        + "then it shows a local estimate."
+                    : detail + ". Allow access in System Settings > Privacy & Security, or "
+                        + "run `claude` once to sign in again. The panel will use a local "
+                        + "estimate meanwhile."
                 alert.addButton(withTitle: "OK")
                 alert.runModal()
             }
-            self?.refresh(spin: false)
+            self.refresh(spin: false)
         }
     }
 
